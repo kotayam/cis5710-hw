@@ -1,9 +1,15 @@
 {
-    "image": "cis5710/hw-base-gradescope:latest",
+  "image": "cis5710/hw-base-gradescope:latest",
 
-    "customizations": {
+  "runArgs": ["--security-opt", "label=disable"],
+
+  "customizations": {
     "vscode": {
-        "extensions": ["mshr-h.veriloghdl", "lramseyer.vaporview", "ms-python.python"]
+      "extensions": [
+        "mshr-h.veriloghdl",
+        "lramseyer.vaporview",
+        "ms-python.python"
+      ]
     }
-  },
+  }
 }
