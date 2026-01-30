@@ -37,7 +37,16 @@ module DividerOneIter (
         dividend = dividend << 1;
     }
     */
-
-    // TODO: your code here
-
+    logic [31:0] r, q;
+    always_comb begin
+        r = (i_remainder << 1) | ((i_dividend >> 31) & 32'b1);
+        q = i_quotient << 1;
+        if (r >= i_divisor) begin
+            q = q | 32'b1;
+            r = r - i_divisor;
+        end
+    end
+    assign o_dividend = i_dividend << 1;
+    assign o_remainder = r;
+    assign o_quotient = q;
 endmodule
