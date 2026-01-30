@@ -10,9 +10,18 @@ module DividerUnsigned (
     output wire [31:0] o_remainder,
     output wire [31:0] o_quotient
 );
-
-    // TODO: your code here
-
+    wire [31:0] d[33], r[33], q[33];
+    assign d[0] = i_dividend;
+    assign r[0] = 32'b0;
+    assign q[0] = 32'b0;
+    genvar i;
+    for (i = 0; i < 32; i = i + 1) begin
+        DividerOneIter doi(.i_dividend(d[i]), .i_divisor(i_divisor), 
+        .i_remainder(r[i]), .i_quotient(q[i]), 
+        .o_dividend(d[i + 1]), .o_remainder(r[i + 1]), .o_quotient(q[i + 1]));
+    end
+    assign o_remainder = r[32];
+    assign o_quotient = q[32];
 endmodule
 
 
@@ -37,7 +46,16 @@ module DividerOneIter (
         dividend = dividend << 1;
     }
     */
-
-    // TODO: your code here
-
+    logic [31:0] r, q;
+    always_comb begin
+        r = (i_remainder << 1) | ((i_dividend >> 31) & 32'b1);
+        q = i_quotient << 1;
+        if (r >= i_divisor) begin
+            q = q | 32'b1;
+            r = r - i_divisor;
+        end
+    end
+    assign o_dividend = i_dividend << 1;
+    assign o_remainder = r;
+    assign o_quotient = q;
 endmodule
