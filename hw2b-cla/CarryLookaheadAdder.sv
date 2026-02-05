@@ -12,6 +12,40 @@ module gp1(input wire a, b,
    assign p = a | b;
 endmodule
 
+module gpn(input wire [N-1:0] gin, pin,
+           input wire cin,
+           output wire gout, pout,
+           output wire [N-2:0] cout);
+   parameter N = 1;
+   // get pout
+   assign pout = (& pin);
+
+   // get gout
+   genvar i;
+   wire [N:0] tmp_out;
+   for (i = 0; i < N-1; i = i + 1) begin
+      assign tmp_out[i] = gin[i] & (& pin[N-1:i+1]);
+   end
+   assign tmp_out[N - 1] = gin[N - 1];
+   assign gout = (| tmp_out);
+
+   // get couts
+   assign cout[0] = gin[0] | pin[0] & cin;
+   genvar j;
+   for (j = 1; j < N-1; j = j + 1) begin
+      // get cout
+      wire [j + 2:0] tmp_cout;
+      assign tmp_cout[0] = gin[j];
+      assign tmp_cout[1] = pin[j] & gin[j - 1];
+      assign tmp_cout[j + 1] = (& pin[j:0]) & cin;
+      genvar k;
+      for (k = 0; k < j - 1; k = k + 1 ) begin
+         assign tmp_cout[k + 2] = (& pin[j:k]) & gin[j - 2 - k];
+      end
+      assign cout[j] = (| tmp_cout);
+   end
+endmodule
+
 /**
  * Computes aggregate generate/propagate signals over a 4-bit window.
  * @param gin incoming generate signals
@@ -25,17 +59,18 @@ module gp4(input wire [3:0] gin, pin,
            input wire cin,
            output wire gout, pout,
            output wire [2:0] cout);
-   assign pout = (& pin);
-   assign gout = gin[0] & (& pin[3:1]) |
-                 gin[1] & (& pin[3:2]) |
-                 gin[2] & pin[3] |
-                 gin[3];
-   assign cout[0] = gin[0] | pin[0] & cin;
-   assign cout[1] = gin[1] | pin[1] & gin[0] | 
-                    (& pin[1:0]) & cin;
-   assign cout[2] = gin[2] | pin[2] & gin[1] | 
-                    (& pin[2:1]) & gin[0] | 
-                    (& pin[2:0]) & cin;
+   gpn #(4) g4(.gin(gin), .pin(pin), .cin(cin), .gout(gout), .pout(pout), .cout(cout));
+   // assign pout = (& pin);
+   // assign gout = gin[0] & (& pin[3:1]) |
+   //               gin[1] & (& pin[3:2]) |
+   //               gin[2] & pin[3] |
+   //               gin[3];
+   // assign cout[0] = gin[0] | pin[0] & cin;
+   // assign cout[1] = gin[1] | pin[1] & gin[0] | 
+   //                  (& pin[1:0]) & cin;
+   // assign cout[2] = gin[2] | pin[2] & gin[1] | 
+   //                  (& pin[2:1]) & gin[0] | 
+   //                  (& pin[2:0]) & cin;
 endmodule
 
 /** Same as gp4 but for an 8-bit window instead */
