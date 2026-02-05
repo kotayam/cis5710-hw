@@ -60,17 +60,6 @@ module gp4(input wire [3:0] gin, pin,
            output wire gout, pout,
            output wire [2:0] cout);
    gpn #(4) g4(.gin(gin), .pin(pin), .cin(cin), .gout(gout), .pout(pout), .cout(cout));
-   // assign pout = (& pin);
-   // assign gout = gin[0] & (& pin[3:1]) |
-   //               gin[1] & (& pin[3:2]) |
-   //               gin[2] & pin[3] |
-   //               gin[3];
-   // assign cout[0] = gin[0] | pin[0] & cin;
-   // assign cout[1] = gin[1] | pin[1] & gin[0] | 
-   //                  (& pin[1:0]) & cin;
-   // assign cout[2] = gin[2] | pin[2] & gin[1] | 
-   //                  (& pin[2:1]) & gin[0] | 
-   //                  (& pin[2:0]) & cin;
 endmodule
 
 /** Same as gp4 but for an 8-bit window instead */
@@ -78,24 +67,52 @@ module gp8(input wire [7:0] gin, pin,
            input wire cin,
            output wire gout, pout,
            output wire [6:0] cout);
-   wire gout_tmp1, pout_tmp1, gout_tmp2, pout_tmp2, c4;
-   assign c4 = gout_tmp1 | (pout_tmp1 & cin);
-   gp4 g1(.gin(gin[3:0]), .pin(pin[3:0]), .cin(cin), .gout(gout_tmp1), .pout(pout_tmp1), .cout(cout[2:0]));
-   gp4 g2(.gin(gin[7:4]), .pin(pin[7:4]), .cin(c4), .gout(gout_tmp2), .pout(pout_tmp2), .cout(cout[6:3]));
-   assign gout = gout_tmp2 | (pout_tmp2 & gout_tmp1);
-   assign pout = pout_tmp1 & pout_tmp2;
+   gpn #(8) g8(.gin(gin), .pin(pin), .cin(cin), .gout(gout), .pout(pout), .cout(cout));
 endmodule
 
 module CarryLookaheadAdder
   (input wire [31:0]  a, b,
    input wire         cin,
    output wire [31:0] sum);
-   wire gout_tmp1, pout_tmp1, gout_tmp2, pout_tmp2, c4;
-   assign c4 = gout_tmp1 | (pout_tmp1 & cin);
-   gp8 g1(.gin(a[7:0]), .pin(pin[7:0]), .cin(cin), .gout(gout_tmp1), .pout(pout_tmp1), .cout(cout[6:0]));
-   gp8 g2(.gin(a[15:8]), .pin(pin[15:8]), .cin(c4), .gout(gout_tmp2), .pout(pout_tmp2), .cout(cout[12:7]));
-   gp8 g3(.gin(a[23:16]), .pin(pin[23:16]), .cin(cin), .gout(gout_tmp1), .pout(pout_tmp1), .cout(cout[18:0]));
-   gp8 g4(.gin(a[31:24]), .pin(pin[31:24]), .cin(c4), .gout(gout_tmp2), .pout(pout_tmp2), .cout(cout[24:3]));
-   assign gout = gout_tmp2 | (pout_tmp2 & gout_tmp1);
-   assign pout = pout_tmp1 & pout_tmp2;
+
+   // get 32-bit g and p
+   genvar i;
+   wire [31:0] g, p;
+   for (i = 0; i < 32; i = i + 1) begin
+      gp1 gp_inst(.a(a[i]), .b(b[i]), .g(g[i]), .p(p[i]));
+   end
+
+   // get 8 4-bit window g and p
+   genvar j;
+   wire[23:0] couts4;
+   wire [7:0] g4, p4, cin4;
+   assign cin4[0] = cin;
+   for (j = 0; j < 8; j = j + 1) begin
+      gp4 gp4_inst(.gin(g[j*4 +: 4]), .pin(p[j*4 +: 4]), .cin(cin4[j]), .gout(g4[j]), .pout(p4[j]), .cout(couts4[j*3 +: 3]));
+   end
+
+   // get 8-bit window 
+   wire g8, p8;
+   wire [6:0] cout8;
+   gp8 gp8_inst(.gin(g4), .pin(p4), .cin(cin), .gout(g8), .pout(p8), .cout(cout8));
+
+   // get full couts
+   wire[31:0] couts;
+   assign couts[0] = cin;
+   // move couts from gp4s
+   genvar k;
+   for (k = 0; k < 8; k = k + 1) begin
+      genvar l;
+      for (l = 0; l < 3; l = l + 1) begin
+         assign couts[k*4 + l + 1] = couts4[k*3 + l];
+      end
+   end
+   // move couts from gp8
+   genvar m;
+   for (m = 0; m < 7; m = m + 1) begin
+      assign couts[(m + 1) * 4] = cout8[m];
+   end
+
+   // get sum
+   assign sum = a ^ b ^ couts;
 endmodule
