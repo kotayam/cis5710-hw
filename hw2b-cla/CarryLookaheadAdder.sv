@@ -12,7 +12,7 @@ module gp1(input wire a, b,
    assign p = a | b;
 endmodule
 
-// a genral module for n-big generate/propagate
+// a genral module for n-bit generate/propagate
 module gpn(input wire [N-1:0] gin, pin,
            input wire cin,
            output wire gout, pout,
