@@ -97,6 +97,10 @@ module DatapathSingleCycle (
   wire [20:0] imm_j;
   assign {imm_j[20], imm_j[10:1], imm_j[11], imm_j[19:12], imm_j[0]} = {insn_from_imem[31:12], 1'b0};
 
+  // U-type
+  wire [19:0] imm_u;
+  assign imm_u = insn_from_imem[31:12];
+
   wire [`REG_SIZE] imm_i_sext = {{20{imm_i[11]}}, imm_i[11:0]};
   wire [`REG_SIZE] imm_s_sext = {{20{imm_s[11]}}, imm_s[11:0]};
   wire [`REG_SIZE] imm_b_sext = {{19{imm_b[12]}}, imm_b[12:0]};
@@ -214,28 +218,40 @@ module DatapathSingleCycle (
   end
 
   // NOTE: don't rename your RegFile instance as the tests expect it to be `rf`
-  // TODO: you will need to edit the port connections, however.
+  logic we;
+  logic [4:0] rd;
+  logic [`REG_SIZE] rd_data;
+  logic [4:0] rs1;
+  logic [4:0] rs2;
   wire [`REG_SIZE] rs1_data;
   wire [`REG_SIZE] rs2_data;
   RegFile rf (
     .clk(clk),
     .rst(rst),
-    .we(1'b0),
-    .rd(0),
-    .rd_data(0),
-    .rs1(0),
-    .rs2(0),
+    .we(we),
+    .rd(rd),
+    .rd_data(rd_data),
+    .rs1(rs1),
+    .rs2(rs2),
     .rs1_data(rs1_data),
     .rs2_data(rs2_data));
 
   logic illegal_insn;
 
   always_comb begin
+    // set defaults
     illegal_insn = 1'b0;
+    we = 1'b0;
+    rd = 5'b0;
+    rd_data = 32'b0;
+    rs1 = 5'b0;
+    rs2 = 5'b0;
 
     case (insn_opcode)
       OpLui: begin
-        // TODO: start here by implementing lui
+        we = 1'b1;
+        rd = insn_rd;
+        rd_data = imm_u << 12;
       end
       default: begin
         illegal_insn = 1'b1;
