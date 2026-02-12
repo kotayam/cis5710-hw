@@ -333,6 +333,37 @@ module DatapathSingleCycle (
           illegal_insn = 1'b1;
         end
       end
+      OpBranch: begin
+        we = 1'b0;
+        rs1 = insn_rs1;
+        rs2 = insn_rs2;
+        pcNext = pcCurrent + 4;
+        if (insn_beq) begin
+          if (rs1_data == rs2_data) begin
+            pcNext = pcCurrent + imm_b_sext;
+          end
+        end else if (insn_bne) begin
+          if (rs1_data != rs2_data) begin
+            pcNext = pcCurrent + imm_b_sext;
+          end
+        end else if (insn_blt) begin
+          if ($signed(rs1_data) < $signed(rs2_data)) begin
+            pcNext = pcCurrent + imm_b_sext;
+          end
+        end else if (insn_bge) begin
+          if ($signed(rs1_data) >= $signed(rs2_data)) begin
+            pcNext = pcCurrent + imm_b_sext;
+          end
+        end else if (insn_bltu) begin
+          if (rs1_data < rs2_data) begin
+            pcNext = pcCurrent + imm_b_sext;
+          end
+        end else if (insn_bgeu) begin
+          if (rs1_data >= rs2_data) begin
+            pcNext = pcCurrent + imm_b_sext;
+          end
+        end
+      end
       default: begin
         illegal_insn = 1'b1;
       end
