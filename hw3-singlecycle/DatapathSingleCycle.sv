@@ -309,6 +309,40 @@ module DatapathSingleCycle (
           illegal_insn = 1'b1;
         end
       end
+      OpRegReg: begin
+        we = 1'b1;
+        rd = insn_rd;
+        rs1 = insn_rs1;
+        rs2 = insn_rs2;
+        if (insn_add) begin
+          alu_a = rs1_data;
+          alu_b = rs2_data;
+          rd_data = alu_sum;
+        end else if (insn_sub) begin
+          alu_a = rs1_data;
+          alu_b = ~rs2_data;
+          alu_cin = 1'b1;
+          rd_data = alu_sum;
+        end else if (insn_sll) begin
+          rd_data = rs1_data << rs2_data[4:0];
+        end else if (insn_slt) begin
+          rd_data = rs1_data < $signed(rs2_data) ? 32'd1 : 32'd0;
+        end else if (insn_sltu) begin
+          rd_data = rs1_data < rs2_data ? 32'd1 : 32'd0;
+        end else if (insn_xor) begin
+          rd_data = rs1_data ^ rs2_data;
+        end else if (insn_srl) begin
+          rd_data = rs1_data >> rs2_data[4:0];
+        end else if (insn_sra) begin
+          rd_data = rs1_data >>> rs2_data[4:0];
+        end else if (insn_or) begin
+          rd_data = rs1_data | rs2_data;
+        end else if (insn_and) begin
+          rd_data = rs1_data & rs2_data;
+        end else begin
+          illegal_insn = 1'b1;
+        end
+      end
       default: begin
         illegal_insn = 1'b1;
       end
