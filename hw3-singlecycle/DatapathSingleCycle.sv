@@ -83,7 +83,7 @@ module DatapathSingleCycle (
   // I - short immediates and loads
   wire [11:0] imm_i;
   assign imm_i = insn_from_imem[31:20];
-  wire [ 4:0] imm_shamt = insn_from_imem[24:20];
+  wire [4:0] imm_shamt = insn_from_imem[24:20];
 
   // S - stores
   wire [11:0] imm_s;
@@ -300,6 +300,7 @@ module DatapathSingleCycle (
         end else if (insn_andi) begin
           rd_data = rs1_data & imm_i_sext;
         end else if (insn_slli) begin
+          rd_data = rs1_data << imm_shamt;
         end
       end
       default: begin
