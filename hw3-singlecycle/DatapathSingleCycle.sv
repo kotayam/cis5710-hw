@@ -203,15 +203,6 @@ module DatapathSingleCycle (
   end
   assign pc_to_imem = pcCurrent;
 
-  // CLA for PC incrementing
-  logic [`REG_SIZE] pc_incr, pc_plus_4;
-  CarryLookaheadAdder pc_cla (
-    .a(pcCurrent),
-    .b(pc_incr),
-    .cin(1'b0),
-    .sum(pc_plus_4)
-  );
-
   // cycle/insn_from_imem counters
   logic [`REG_SIZE] cycles_current, num_insns_current;
   always @(posedge clk) begin
@@ -272,8 +263,7 @@ module DatapathSingleCycle (
     alu_cin = 1'b0;
 
     // increment pc by 4 default
-    pc_incr = 32'd4;
-    pcNext = pc_plus_4;
+    pcNext = pcCurrent + 32'd4;
 
     case (insn_opcode)
       OpLui: begin
