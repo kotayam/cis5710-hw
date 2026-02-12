@@ -262,6 +262,9 @@ module DatapathSingleCycle (
     alu_b = 32'b0;
     alu_cin = 1'b0;
 
+    // default halt to 0
+    halt = 1'b0;
+
     // increment pc by 4 default
     pcNext = pcCurrent + 32'd4;
 
@@ -331,6 +334,11 @@ module DatapathSingleCycle (
           rd_data = rs1_data & rs2_data;
         end else begin
           illegal_insn = 1'b1;
+        end
+      end
+      OpEnviron: begin
+        if (insn_ecall) begin
+          halt = 1'b1;
         end
       end
       default: begin
@@ -429,6 +437,8 @@ prepare register/PC updates, which occur at @posedge clock_proc.
 
         ____
  proc: |    |______
+ OpEnviron: begin
+        if (insn)
            ____
  mem:  ___|    |___
 */
