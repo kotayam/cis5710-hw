@@ -27,9 +27,25 @@ module RegFile (
 );
   localparam int NumRegs = 32;
   logic [`REG_SIZE] regs[NumRegs];
+  
+  // x0 is always 0
+  assign regs[0] = 32'b0;
 
-  // TODO: your code here
+  // set rs1 and rs2
+  assign rs1_data = regs[rs1];
+  assign rs2_data = regs[rs2];
 
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      for (int i = 1; i < NumRegs; i++) begin
+        regs[i] <= 32'b0;
+      end
+    end else begin
+      if (we && rd != 0) begin
+        regs[rd] <= rd_data;
+      end   
+    end
+  end
 endmodule
 
 module DatapathSingleCycle (
