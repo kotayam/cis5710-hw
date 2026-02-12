@@ -299,7 +299,7 @@ async def testBltNotTaken(dut):
         lui x1, 0x54321
         target: nop''')
 
-    await ClockCycles(dut.clock_proc, 5)
+    await ClockCycles(dut.clock_proc, 6)
     assertEquals(0x54321000, dut.datapath.rf.regs[1].value, f'failed at cycle {dut.datapath.cycles_current.value.integer}')
 
 @cocotb.test()
@@ -327,7 +327,7 @@ async def testBgeNotTaken(dut):
         lui x1, 0x54321
         target: nop''')
 
-    await ClockCycles(dut.clock_proc, 5)
+    await ClockCycles(dut.clock_proc, 6)
     assertEquals(0x54321000, dut.datapath.rf.regs[1].value, f'failed at cycle {dut.datapath.cycles_current.value.integer}')
 
 @cocotb.test()
@@ -356,7 +356,7 @@ async def testBltuNotTaken(dut):
         lui x1, 0x54321
         target: nop''')
 
-    await ClockCycles(dut.clock_proc, 5)
+    await ClockCycles(dut.clock_proc, 6)
     assertEquals(0x54321000, dut.datapath.rf.regs[1].value, f'failed at cycle {dut.datapath.cycles_current.value.integer}')
 
 @cocotb.test()
@@ -384,7 +384,7 @@ async def testBgeuNotTaken(dut):
         lui x1, 0x54321
         target: nop''')
 
-    await ClockCycles(dut.clock_proc, 5)
+    await ClockCycles(dut.clock_proc, 6)
     assertEquals(0x54321000, dut.datapath.rf.regs[1].value, f'failed at cycle {dut.datapath.cycles_current.value.integer}')
 
 @cocotb.test()
