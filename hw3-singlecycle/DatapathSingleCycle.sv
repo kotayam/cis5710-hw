@@ -247,6 +247,9 @@ module DatapathSingleCycle (
     rs1 = 5'b0;
     rs2 = 5'b0;
 
+    // increment pc by 4 default
+    pcNext = pcCurrent + 4;
+
     case (insn_opcode)
       OpLui: begin
         we = 1'b1;
@@ -259,6 +262,11 @@ module DatapathSingleCycle (
           rd = insn_rd;
           rs1 = insn_rs1;
           rd_data = rs1_data + imm_i_sext;
+        end else if (insn_slti) begin
+          rs1 = insn_rs1;
+          we = 1'b1;
+          rd = insn_rd;
+          rd_data = rs1_data < imm_i_sext ? 32'd1 : 32'd0;
         end
       end
       default: begin
