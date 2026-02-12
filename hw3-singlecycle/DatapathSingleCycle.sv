@@ -253,6 +253,14 @@ module DatapathSingleCycle (
         rd = insn_rd;
         rd_data = imm_u << 12;
       end
+      OpRegImm: begin
+        if (insn_addi) begin
+          we = 1'b1;
+          rd = insn_rd;
+          rs1 = insn_rs1;
+          rd_data = rs1_data + imm_i_sext;
+        end
+      end
       default: begin
         illegal_insn = 1'b1;
       end
