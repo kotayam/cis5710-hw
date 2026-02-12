@@ -203,6 +203,14 @@ module DatapathSingleCycle (
   end
   assign pc_to_imem = pcCurrent;
 
+  logic [`REG_SIZE] pc_incr, pc_plus_4;
+  CarryLookaheadAdder pc_cla (
+    .a(pcCurrent),
+    .b(pc_incr),
+    .cin(1'b0),
+    .sum(pc_plus_4)
+  );
+
   // cycle/insn_from_imem counters
   logic [`REG_SIZE] cycles_current, num_insns_current;
   always @(posedge clk) begin
@@ -235,6 +243,16 @@ module DatapathSingleCycle (
     .rs2(rs2),
     .rs1_data(rs1_data),
     .rs2_data(rs2_data));
+  
+  // CLA for ALU operations.
+  logic [`REG_SIZE] alu_a, alu_b, alu_sum;
+  logic alu_cin;
+  CarryLookaheadAdder alu_cla (
+    .a(alu_a),
+    .b(alu_b),
+    .cin(alu_cin),
+    .sum(alu_sum)
+  );
 
   logic illegal_insn;
 
@@ -247,8 +265,14 @@ module DatapathSingleCycle (
     rs1 = 5'b0;
     rs2 = 5'b0;
 
+    // ALU CLA defaults
+    alu_a = 32'b0;
+    alu_b = 32'b0;
+    alu_cin = 1'b0;
+
     // increment pc by 4 default
-    pcNext = pcCurrent + 4;
+    pc_incr = 32'd4;
+    pcNext = pc_plus_4;
 
     case (insn_opcode)
       OpLui: begin
@@ -261,7 +285,9 @@ module DatapathSingleCycle (
           we = 1'b1;
           rd = insn_rd;
           rs1 = insn_rs1;
-          rd_data = rs1_data + imm_i_sext;
+          alu_a = rs1_data;
+          alu_b = imm_i_sext;
+          rd_data = alu_sum;
         end else if (insn_slti) begin
           rs1 = insn_rs1;
           we = 1'b1;
