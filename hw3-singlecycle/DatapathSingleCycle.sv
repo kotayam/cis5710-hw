@@ -83,7 +83,7 @@ module DatapathSingleCycle (
   // I - short immediates and loads
   wire [11:0] imm_i;
   assign imm_i = insn_from_imem[31:20];
-  wire [ 4:0] imm_shamt = insn_from_imem[24:20];
+  wire [4:0] imm_shamt = insn_from_imem[24:20];
 
   // S - stores
   wire [11:0] imm_s;
@@ -96,6 +96,10 @@ module DatapathSingleCycle (
   // J - unconditional jumps
   wire [20:0] imm_j;
   assign {imm_j[20], imm_j[10:1], imm_j[11], imm_j[19:12], imm_j[0]} = {insn_from_imem[31:12], 1'b0};
+
+  // U-type
+  wire [19:0] imm_u;
+  assign imm_u = insn_from_imem[31:12];
 
   wire [`REG_SIZE] imm_i_sext = {{20{imm_i[11]}}, imm_i[11:0]};
   wire [`REG_SIZE] imm_s_sext = {{20{imm_s[11]}}, imm_s[11:0]};
@@ -214,28 +218,120 @@ module DatapathSingleCycle (
   end
 
   // NOTE: don't rename your RegFile instance as the tests expect it to be `rf`
-  // TODO: you will need to edit the port connections, however.
+  logic we;
+  logic [4:0] rd;
+  logic [`REG_SIZE] rd_data;
+  logic [4:0] rs1;
+  logic [4:0] rs2;
   wire [`REG_SIZE] rs1_data;
   wire [`REG_SIZE] rs2_data;
   RegFile rf (
     .clk(clk),
     .rst(rst),
-    .we(1'b0),
-    .rd(0),
-    .rd_data(0),
-    .rs1(0),
-    .rs2(0),
+    .we(we),
+    .rd(rd),
+    .rd_data(rd_data),
+    .rs1(rs1),
+    .rs2(rs2),
     .rs1_data(rs1_data),
     .rs2_data(rs2_data));
+  
+  // CLA for ALU operations.
+  logic [`REG_SIZE] alu_a, alu_b, alu_sum;
+  logic alu_cin;
+  CarryLookaheadAdder alu_cla (
+    .a(alu_a),
+    .b(alu_b),
+    .cin(alu_cin),
+    .sum(alu_sum)
+  );
 
   logic illegal_insn;
 
   always_comb begin
+    // set defaults
     illegal_insn = 1'b0;
+    we = 1'b0;
+    rd = 5'b0;
+    rd_data = 32'b0;
+    rs1 = 5'b0;
+    rs2 = 5'b0;
+
+    // ALU CLA defaults
+    alu_a = 32'b0;
+    alu_b = 32'b0;
+    alu_cin = 1'b0;
+
+    // increment pc by 4 default
+    pcNext = pcCurrent + 32'd4;
 
     case (insn_opcode)
       OpLui: begin
-        // TODO: start here by implementing lui
+        we = 1'b1;
+        rd = insn_rd;
+        rd_data = imm_u << 12;
+      end
+      OpRegImm: begin
+        we = 1'b1;
+        rd = insn_rd;
+        rs1 = insn_rs1;
+        if (insn_addi) begin
+          alu_a = rs1_data;
+          alu_b = imm_i_sext;
+          rd_data = alu_sum;
+        end else if (insn_slti) begin
+          rd_data = rs1_data < $signed(imm_i_sext) ? 32'd1 : 32'd0;
+        end else if (insn_sltiu) begin
+          rd_data = rs1_data < imm_i_sext ? 32'd1 : 32'd0;
+        end else if (insn_xori) begin
+          rd_data = rs1_data ^ imm_i_sext;
+        end else if (insn_ori) begin
+          rd_data = rs1_data | imm_i_sext;
+        end else if (insn_andi) begin
+          rd_data = rs1_data & imm_i_sext;
+        end else if (insn_slli) begin
+          rd_data = rs1_data << imm_shamt;
+        end else if (insn_srli) begin
+          rd_data = rs1_data >> imm_shamt;
+        end else if (insn_srai) begin
+          rd_data = rs1_data >>> imm_shamt;
+        end else begin
+          illegal_insn = 1'b1;
+        end
+      end
+      OpRegReg: begin
+        we = 1'b1;
+        rd = insn_rd;
+        rs1 = insn_rs1;
+        rs2 = insn_rs2;
+        if (insn_add) begin
+          alu_a = rs1_data;
+          alu_b = rs2_data;
+          rd_data = alu_sum;
+        end else if (insn_sub) begin
+          alu_a = rs1_data;
+          alu_b = ~rs2_data;
+          alu_cin = 1'b1;
+          rd_data = alu_sum;
+        end else if (insn_sll) begin
+          rd_data = rs1_data << rs2_data[4:0];
+        end else if (insn_slt) begin
+          rd_data = rs1_data < $signed(rs2_data) ? 32'd1 : 32'd0;
+        end else if (insn_sltu) begin
+          rd_data = rs1_data < rs2_data ? 32'd1 : 32'd0;
+        end else if (insn_xor) begin
+          rd_data = rs1_data ^ rs2_data;
+        end else if (insn_srl) begin
+          rd_data = rs1_data >> rs2_data[4:0];
+        end else if (insn_sra) begin
+          rd_data = rs1_data >>> rs2_data[4:0];
+        end else if (insn_or) begin
+          rd_data = rs1_data | rs2_data;
+        end else if (insn_and) begin
+          rd_data = rs1_data & rs2_data;
+        end else begin
+          illegal_insn = 1'b1;
+        end
       end
       default: begin
         illegal_insn = 1'b1;
