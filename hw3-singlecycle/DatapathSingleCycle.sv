@@ -337,7 +337,6 @@ module DatapathSingleCycle (
         we = 1'b0;
         rs1 = insn_rs1;
         rs2 = insn_rs2;
-        pcNext = pcCurrent + 4;
         if (insn_beq) begin
           if (rs1_data == rs2_data) begin
             pcNext = pcCurrent + imm_b_sext;
