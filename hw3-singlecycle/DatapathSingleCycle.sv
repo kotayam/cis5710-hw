@@ -301,6 +301,12 @@ module DatapathSingleCycle (
           rd_data = rs1_data & imm_i_sext;
         end else if (insn_slli) begin
           rd_data = rs1_data << imm_shamt;
+        end else if (insn_srli) begin
+          rd_data = rs1_data >> imm_shamt;
+        end else if (insn_srai) begin
+          rd_data = rs1_data >>> imm_shamt;
+        end else begin
+          illegal_insn = 1'b1;
         end
       end
       default: begin
