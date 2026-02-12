@@ -203,6 +203,7 @@ module DatapathSingleCycle (
   end
   assign pc_to_imem = pcCurrent;
 
+  // CLA for PC incrementing
   logic [`REG_SIZE] pc_incr, pc_plus_4;
   CarryLookaheadAdder pc_cla (
     .a(pcCurrent),
@@ -281,18 +282,24 @@ module DatapathSingleCycle (
         rd_data = imm_u << 12;
       end
       OpRegImm: begin
+        we = 1'b1;
+        rd = insn_rd;
+        rs1 = insn_rs1;
         if (insn_addi) begin
-          we = 1'b1;
-          rd = insn_rd;
-          rs1 = insn_rs1;
           alu_a = rs1_data;
           alu_b = imm_i_sext;
           rd_data = alu_sum;
         end else if (insn_slti) begin
-          rs1 = insn_rs1;
-          we = 1'b1;
-          rd = insn_rd;
+          rd_data = rs1_data < $signed(imm_i_sext) ? 32'd1 : 32'd0;
+        end else if (insn_sltiu) begin
           rd_data = rs1_data < imm_i_sext ? 32'd1 : 32'd0;
+        end else if (insn_xori) begin
+          rd_data = rs1_data ^ imm_i_sext;
+        end else if (insn_ori) begin
+          rd_data = rs1_data | imm_i_sext;
+        end else if (insn_andi) begin
+          rd_data = rs1_data & imm_i_sext;
+        end else if (insn_slli) begin
         end
       end
       default: begin
