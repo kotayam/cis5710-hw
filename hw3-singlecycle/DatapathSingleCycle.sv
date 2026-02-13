@@ -262,6 +262,9 @@ module DatapathSingleCycle (
     alu_b = 32'b0;
     alu_cin = 1'b0;
 
+    // default halt to 0
+    halt = 1'b0;
+
     // increment pc by 4 default
     pcNext = pcCurrent + 32'd4;
 
@@ -280,7 +283,7 @@ module DatapathSingleCycle (
           alu_b = imm_i_sext;
           rd_data = alu_sum;
         end else if (insn_slti) begin
-          rd_data = rs1_data < $signed(imm_i_sext) ? 32'd1 : 32'd0;
+          rd_data = $signed(rs1_data) < $signed(imm_i_sext) ? 32'd1 : 32'd0;
         end else if (insn_sltiu) begin
           rd_data = rs1_data < imm_i_sext ? 32'd1 : 32'd0;
         end else if (insn_xori) begin
@@ -316,7 +319,7 @@ module DatapathSingleCycle (
         end else if (insn_sll) begin
           rd_data = rs1_data << rs2_data[4:0];
         end else if (insn_slt) begin
-          rd_data = rs1_data < $signed(rs2_data) ? 32'd1 : 32'd0;
+          rd_data = $signed(rs1_data) < $signed(rs2_data) ? 32'd1 : 32'd0;
         end else if (insn_sltu) begin
           rd_data = rs1_data < rs2_data ? 32'd1 : 32'd0;
         end else if (insn_xor) begin
@@ -361,6 +364,11 @@ module DatapathSingleCycle (
           if (rs1_data >= rs2_data) begin
             pcNext = pcCurrent + imm_b_sext;
           end
+        end
+      end
+      OpEnviron: begin
+        if (insn_ecall) begin
+          halt = 1'b1;
         end
       end
       default: begin
