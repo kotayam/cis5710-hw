@@ -467,8 +467,6 @@ prepare register/PC updates, which occur at @posedge clock_proc.
 
         ____
  proc: |    |______
- OpEnviron: begin
-        if (insn)
            ____
  mem:  ___|    |___
 */
