@@ -297,7 +297,7 @@ module DatapathSingleCycle (
         end else if (insn_srli) begin
           rd_data = rs1_data >> imm_shamt;
         end else if (insn_srai) begin
-          rd_data = rs1_data >>> imm_shamt;
+          rd_data = $signed(rs1_data) >>> imm_shamt;
         end else begin
           illegal_insn = 1'b1;
         end
@@ -327,7 +327,7 @@ module DatapathSingleCycle (
         end else if (insn_srl) begin
           rd_data = rs1_data >> rs2_data[4:0];
         end else if (insn_sra) begin
-          rd_data = rs1_data >>> rs2_data[4:0];
+          rd_data = $signed(rs1_data) >>> rs2_data[4:0];
         end else if (insn_or) begin
           rd_data = rs1_data | rs2_data;
         end else if (insn_and) begin
@@ -377,6 +377,14 @@ module DatapathSingleCycle (
     endcase
   end
 
+  // assign outputs
+  assign trace_completed_pc = pcCurrent;
+  assign trace_completed_insn = insn_from_imem;
+  assign trace_completed_cycle_status = CYCLE_NO_STALL;
+
+  // assign load/store outputs
+  // assign addr_to_dmem = alu_sum;
+  // assign store_data_to_dmem = rs2_data;
 endmodule
 
 /* A memory module that supports 1-cycle reads and writes, with one read-only port
