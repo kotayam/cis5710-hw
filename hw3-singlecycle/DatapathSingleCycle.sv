@@ -377,6 +377,10 @@ module DatapathSingleCycle (
     endcase
   end
 
+  // assign outputs
+  assign trace_completed_pc = pcCurrent;
+  assign trace_completed_insn = insn_from_imem;
+  assign trace_completed_cycle_status = CYCLE_NO_STALL;
 endmodule
 
 /* A memory module that supports 1-cycle reads and writes, with one read-only port
