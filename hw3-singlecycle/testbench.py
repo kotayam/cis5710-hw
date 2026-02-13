@@ -223,6 +223,16 @@ async def testSlli(dut):
     assertEquals(32, dut.datapath.rf.regs[1].value, f'failed at cycle {dut.datapath.cycles_current.value.integer}')
 
 @cocotb.test()
+async def testSrai(dut):
+    "Run srai"
+    await preTestSetup(dut, '''
+    addi x1,x0,-42
+    srai x2,x1,2''')
+
+    await ClockCycles(dut.clock_proc, 3)
+    assertEquals(-11, dut.datapath.rf.regs[2].value.signed_integer, f'failed at cycle {dut.datapath.cycles_current.value.integer}')
+
+@cocotb.test()
 async def testOri(dut):
     "Run ori"
     await preTestSetup(dut, '''

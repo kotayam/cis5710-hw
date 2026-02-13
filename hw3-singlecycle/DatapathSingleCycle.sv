@@ -297,7 +297,7 @@ module DatapathSingleCycle (
         end else if (insn_srli) begin
           rd_data = rs1_data >> imm_shamt;
         end else if (insn_srai) begin
-          rd_data = rs1_data >>> imm_shamt;
+          rd_data = $signed(rs1_data) >>> imm_shamt;
         end else begin
           illegal_insn = 1'b1;
         end
