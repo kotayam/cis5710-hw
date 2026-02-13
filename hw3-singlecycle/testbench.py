@@ -275,6 +275,119 @@ async def testBeqTaken(dut):
     pass
 
 @cocotb.test()
+async def testBltTaken(dut):
+    "blt (signed) taken: -10 < 5"
+    await preTestSetup(dut, '''
+        addi x2, x0, -10
+        addi x3, x0, 5
+        lui x1, 0x12345
+        blt x2, x3, target
+        lui x1, 0x54321
+        target: nop''')
+
+    await ClockCycles(dut.clock_proc, 5)
+    assertEquals(0x12345000, dut.datapath.rf.regs[1].value, f'failed at cycle {dut.datapath.cycles_current.value.integer}')
+
+@cocotb.test()
+async def testBltNotTaken(dut):
+    "blt (signed) not taken: 5 < -10"
+    await preTestSetup(dut, '''
+        addi x2, x0, 5
+        addi x3, x0, -10
+        lui x1, 0x12345
+        blt x2, x3, target
+        lui x1, 0x54321
+        target: nop''')
+
+    await ClockCycles(dut.clock_proc, 6)
+    assertEquals(0x54321000, dut.datapath.rf.regs[1].value, f'failed at cycle {dut.datapath.cycles_current.value.integer}')
+
+@cocotb.test()
+async def testBgeTaken(dut):
+    "bge (signed) taken: 5 >= -10"
+    await preTestSetup(dut, '''
+        addi x2, x0, 5
+        addi x3, x0, -10
+        lui x1, 0x12345
+        bge x2, x3, target
+        lui x1, 0x54321
+        target: nop''')
+
+    await ClockCycles(dut.clock_proc, 5)
+    assertEquals(0x12345000, dut.datapath.rf.regs[1].value, f'failed at cycle {dut.datapath.cycles_current.value.integer}')
+
+@cocotb.test()
+async def testBgeNotTaken(dut):
+    "bge (signed) not taken: -10 >= 5"
+    await preTestSetup(dut, '''
+        addi x2, x0, -10
+        addi x3, x0, 5
+        lui x1, 0x12345
+        bge x2, x3, target
+        lui x1, 0x54321
+        target: nop''')
+
+    await ClockCycles(dut.clock_proc, 6)
+    assertEquals(0x54321000, dut.datapath.rf.regs[1].value, f'failed at cycle {dut.datapath.cycles_current.value.integer}')
+
+@cocotb.test()
+async def testBltuTaken(dut):
+    "bltu (unsigned) taken: 10 < -1 (small pos < large pos)"
+    # -1 in two's complement is 0xFFFFFFFF, which is huge in unsigned
+    await preTestSetup(dut, '''
+        addi x2, x0, 10
+        addi x3, x0, -1
+        lui x1, 0x12345
+        bltu x2, x3, target
+        lui x1, 0x54321
+        target: nop''')
+
+    await ClockCycles(dut.clock_proc, 5)
+    assertEquals(0x12345000, dut.datapath.rf.regs[1].value, f'failed at cycle {dut.datapath.cycles_current.value.integer}')
+
+@cocotb.test()
+async def testBltuNotTaken(dut):
+    "bltu (unsigned) not taken: -1 < 10 (large pos < small pos)"
+    await preTestSetup(dut, '''
+        addi x2, x0, -1
+        addi x3, x0, 10
+        lui x1, 0x12345
+        bltu x2, x3, target
+        lui x1, 0x54321
+        target: nop''')
+
+    await ClockCycles(dut.clock_proc, 6)
+    assertEquals(0x54321000, dut.datapath.rf.regs[1].value, f'failed at cycle {dut.datapath.cycles_current.value.integer}')
+
+@cocotb.test()
+async def testBgeuTaken(dut):
+    "bgeu (unsigned) taken: -1 >= 10 (large pos >= small pos)"
+    await preTestSetup(dut, '''
+        addi x2, x0, -1
+        addi x3, x0, 10
+        lui x1, 0x12345
+        bgeu x2, x3, target
+        lui x1, 0x54321
+        target: nop''')
+
+    await ClockCycles(dut.clock_proc, 5)
+    assertEquals(0x12345000, dut.datapath.rf.regs[1].value, f'failed at cycle {dut.datapath.cycles_current.value.integer}')
+
+@cocotb.test()
+async def testBgeuNotTaken(dut):
+    "bgeu (unsigned) not taken: 10 >= -1 (small pos >= large pos)"
+    await preTestSetup(dut, '''
+        addi x2, x0, 10
+        addi x3, x0, -1
+        lui x1, 0x12345
+        bgeu x2, x3, target
+        lui x1, 0x54321
+        target: nop''')
+
+    await ClockCycles(dut.clock_proc, 6)
+    assertEquals(0x54321000, dut.datapath.rf.regs[1].value, f'failed at cycle {dut.datapath.cycles_current.value.integer}')
+
+@cocotb.test()
 async def testEcall(dut):
     "ecall insn causes processor to halt"
     await preTestSetup(dut, '''
