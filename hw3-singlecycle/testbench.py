@@ -193,6 +193,26 @@ async def testAddiAll(dut):
     pass
 
 @cocotb.test()
+async def testSltiOne(dut):
+    "Run slti output one"
+    await preTestSetup(dut, '''
+    addi x1,x0,-11
+    slti x2,x1,-10''')
+
+    await ClockCycles(dut.clock_proc, 3)
+    assertEquals(1, dut.datapath.rf.regs[2].value, f'failed at cycle {dut.datapath.cycles_current.value.integer}')
+
+@cocotb.test()
+async def testSltiZero(dut):
+    "Run slti output zero"
+    await preTestSetup(dut, '''
+    addi x1,x0,11
+    slti x2,x1,-10''')
+
+    await ClockCycles(dut.clock_proc, 3)
+    assertEquals(0, dut.datapath.rf.regs[2].value, f'failed at cycle {dut.datapath.cycles_current.value.integer}')
+
+@cocotb.test()
 async def testSlli(dut):
     "Run slli"
     await preTestSetup(dut, '''
