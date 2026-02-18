@@ -268,11 +268,21 @@ module DatapathSingleCycle (
     // increment pc by 4 default
     pcNext = pcCurrent + 32'd4;
 
+    // default values for data memory
+    addr_to_dmem = 32'b0;
+    store_data_to_dmem = 32'b0;
+    store_we_to_dmem = 4'b0;
+
     case (insn_opcode)
       OpLui: begin
         we = 1'b1;
         rd = insn_rd;
         rd_data = imm_u << 12;
+      end
+      OpAuipc: begin
+        we = 1'b1;
+        rd = insn_rd;
+        rd_data = pcCurrent + (imm_u << 12);
       end
       OpRegImm: begin
         we = 1'b1;
@@ -336,8 +346,43 @@ module DatapathSingleCycle (
           illegal_insn = 1'b1;
         end
       end
+      OpLoad: begin
+        we = 1'b1;
+        rd = insn_rd;
+        rs1 = insn_rs1;
+        addr_to_dmem = rs1_data + imm_i_sext;
+        if (insn_lb) begin
+          rd_data = {{24{load_data_from_dmem[7]}}, load_data_from_dmem[7:0]};
+        end else if (insn_lh) begin
+          rd_data = {{16{load_data_from_dmem[15]}}, load_data_from_dmem[15:0]};
+        end else if (insn_lw) begin
+          rd_data = load_data_from_dmem;
+        end else if (insn_lbu) begin
+          rd_data = {24'b0, load_data_from_dmem[7:0]};
+        end else if (insn_lhu) begin
+          rd_data = {16'b0, load_data_from_dmem[15:0]};
+        end else begin
+          illegal_insn = 1'b1;
+        end
+      end
+      OpStore: begin
+        rs1 = insn_rs1;
+        rs2 = insn_rs2;
+        addr_to_dmem = rs1_data + imm_s_sext;
+        if (insn_sb) begin
+          store_we_to_dmem = 4'b0001;
+          store_data_to_dmem = {4{rs2_data[7:0]}};
+        end else if (insn_sh) begin
+          store_we_to_dmem = 4'b0011;
+          store_data_to_dmem = {2{rs2_data[15:0]}};
+        end else if (insn_sw) begin
+          store_we_to_dmem = 4'b1111;
+          store_data_to_dmem = rs2_data;
+        end else begin
+          illegal_insn = 1'b1;
+        end
+      end
       OpBranch: begin
-        we = 1'b0;
         rs1 = insn_rs1;
         rs2 = insn_rs2;
         if (insn_beq) begin
@@ -364,11 +409,15 @@ module DatapathSingleCycle (
           if (rs1_data >= rs2_data) begin
             pcNext = pcCurrent + imm_b_sext;
           end
+        end else begin
+          illegal_insn = 1'b1;
         end
       end
       OpEnviron: begin
         if (insn_ecall) begin
           halt = 1'b1;
+        end else begin
+          illegal_insn = 1'b1;
         end
       end
       default: begin
@@ -381,10 +430,6 @@ module DatapathSingleCycle (
   assign trace_completed_pc = pcCurrent;
   assign trace_completed_insn = insn_from_imem;
   assign trace_completed_cycle_status = CYCLE_NO_STALL;
-
-  // assign load/store outputs
-  // assign addr_to_dmem = alu_sum;
-  // assign store_data_to_dmem = rs2_data;
 endmodule
 
 /* A memory module that supports 1-cycle reads and writes, with one read-only port
