@@ -268,7 +268,7 @@ module DatapathSingleCycle (
     // increment pc by 4 default
     pcNext = pcCurrent + 32'd4;
 
-    // default addr to dmem
+    // default values for data memory
     addr_to_dmem = 32'b0;
     store_data_to_dmem = 32'b0;
     store_we_to_dmem = 4'b0;
