@@ -246,8 +246,9 @@ module DatapathSingleCycle (
     .sum(alu_sum)
   );
 
-  // data memory
-  logic [`REG_SIZE] mem_data_addr;
+  // data memory load/store
+  logic [`REG_SIZE] mem_data_addr, mem_data_store;
+  logic [3:0] mem_store_we;
 
   logic illegal_insn;
 
@@ -273,6 +274,8 @@ module DatapathSingleCycle (
 
     // default addr to dmem
     mem_data_addr = 32'b0;
+    mem_data_store = 32'b0;
+    mem_store_we = 4'b0;
 
     case (insn_opcode)
       OpLui: begin
@@ -356,7 +359,20 @@ module DatapathSingleCycle (
         end
       end
       OpStore: begin
-        if (insn_sb)
+        we = 1'b0;
+        rs1 = insn_rs1;
+        rs2 = insn_rs2;
+        mem_data_addr = rs1_data + imm_i_sext;
+        if (insn_sb) begin
+          mem_store_we = 4'b0001;
+          mem_data_store = {4{rs2_data[7:0]}};
+        end else if (insn_sh) begin
+          mem_store_we = 4'b0011;
+          mem_data_store = {2{rs2_data[15:0]}};
+        end else if (insn_sw) begin
+          mem_store_we = 4'b1111;
+          mem_data_store = rs2_data;
+        end
       end
       OpBranch: begin
         we = 1'b0;
