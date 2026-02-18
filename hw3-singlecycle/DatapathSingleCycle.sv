@@ -346,12 +346,17 @@ module DatapathSingleCycle (
         we = 1'b1;
         rd = insn_rd;
         rs1 = insn_rs1;
+        mem_data_addr = rs1_data + imm_i_sext;
         if (insn_lb) begin
-          mem_data_addr = rs1_data + imm_i_sext;
           rd_data = {{24{load_data_from_dmem[7]}}, load_data_from_dmem[7:0]};
+        end else if (insn_lh) begin
+          rd_data = {{16{load_data_from_dmem[15]}}, load_data_from_dmem[15:0]};
+        end else if (insn_lw) begin
+          rd_data = load_data_from_dmem;
         end
       end
       OpStore: begin
+        if (insn_sb)
       end
       OpBranch: begin
         we = 1'b0;
