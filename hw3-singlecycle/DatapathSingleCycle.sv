@@ -246,10 +246,6 @@ module DatapathSingleCycle (
     .sum(alu_sum)
   );
 
-  // data memory load/store
-  logic [`REG_SIZE] mem_data_addr, mem_data_store;
-  logic [3:0] mem_store_we;
-
   logic illegal_insn;
 
   always_comb begin
