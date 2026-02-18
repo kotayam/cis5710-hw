@@ -273,15 +273,20 @@ module DatapathSingleCycle (
     pcNext = pcCurrent + 32'd4;
 
     // default addr to dmem
-    mem_data_addr = 32'b0;
-    mem_data_store = 32'b0;
-    mem_store_we = 4'b0;
+    addr_to_dmem = 32'b0;
+    store_data_to_dmem = 32'b0;
+    store_we_to_dmem = 4'b0;
 
     case (insn_opcode)
       OpLui: begin
         we = 1'b1;
         rd = insn_rd;
         rd_data = imm_u << 12;
+      end
+      OpAuipc: begin
+        we = 1'b1;
+        rd = insn_rd;
+        rd_data = pcCurrent + (imm_u << 12);
       end
       OpRegImm: begin
         we = 1'b1;
@@ -349,7 +354,7 @@ module DatapathSingleCycle (
         we = 1'b1;
         rd = insn_rd;
         rs1 = insn_rs1;
-        mem_data_addr = rs1_data + imm_i_sext;
+        addr_to_dmem = rs1_data + imm_i_sext;
         if (insn_lb) begin
           rd_data = {{24{load_data_from_dmem[7]}}, load_data_from_dmem[7:0]};
         end else if (insn_lh) begin
@@ -359,23 +364,21 @@ module DatapathSingleCycle (
         end
       end
       OpStore: begin
-        we = 1'b0;
         rs1 = insn_rs1;
         rs2 = insn_rs2;
-        mem_data_addr = rs1_data + imm_i_sext;
+        addr_to_dmem = rs1_data + imm_s_sext;
         if (insn_sb) begin
-          mem_store_we = 4'b0001;
-          mem_data_store = {4{rs2_data[7:0]}};
+          store_we_to_dmem = 4'b0001;
+          store_data_to_dmem = {4{rs2_data[7:0]}};
         end else if (insn_sh) begin
-          mem_store_we = 4'b0011;
-          mem_data_store = {2{rs2_data[15:0]}};
+          store_we_to_dmem = 4'b0011;
+          store_data_to_dmem = {2{rs2_data[15:0]}};
         end else if (insn_sw) begin
-          mem_store_we = 4'b1111;
-          mem_data_store = rs2_data;
+          store_we_to_dmem = 4'b1111;
+          store_data_to_dmem = rs2_data;
         end
       end
       OpBranch: begin
-        we = 1'b0;
         rs1 = insn_rs1;
         rs2 = insn_rs2;
         if (insn_beq) begin
@@ -419,10 +422,6 @@ module DatapathSingleCycle (
   assign trace_completed_pc = pcCurrent;
   assign trace_completed_insn = insn_from_imem;
   assign trace_completed_cycle_status = CYCLE_NO_STALL;
-
-  // assign dmem memory
-  assign addr_to_dmem = mem_data_addr;
-  // assign store_data_to_dmem = rs2_data;
 endmodule
 
 /* A memory module that supports 1-cycle reads and writes, with one read-only port
