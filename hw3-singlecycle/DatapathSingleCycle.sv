@@ -246,6 +246,9 @@ module DatapathSingleCycle (
     .sum(alu_sum)
   );
 
+  // data memory
+  logic [`REG_SIZE] mem_data_addr;
+
   logic illegal_insn;
 
   always_comb begin
@@ -267,6 +270,9 @@ module DatapathSingleCycle (
 
     // increment pc by 4 default
     pcNext = pcCurrent + 32'd4;
+
+    // default addr to dmem
+    mem_data_addr = 32'b0;
 
     case (insn_opcode)
       OpLui: begin
@@ -336,6 +342,17 @@ module DatapathSingleCycle (
           illegal_insn = 1'b1;
         end
       end
+      OpLoad: begin
+        we = 1'b1;
+        rd = insn_rd;
+        rs1 = insn_rs1;
+        if (insn_lb) begin
+          mem_data_addr = rs1_data + imm_i_sext;
+          rd_data = {{24{load_data_from_dmem[7]}}, load_data_from_dmem[7:0]};
+        end
+      end
+      OpStore: begin
+      end
       OpBranch: begin
         we = 1'b0;
         rs1 = insn_rs1;
@@ -382,8 +399,8 @@ module DatapathSingleCycle (
   assign trace_completed_insn = insn_from_imem;
   assign trace_completed_cycle_status = CYCLE_NO_STALL;
 
-  // assign load/store outputs
-  // assign addr_to_dmem = alu_sum;
+  // assign dmem memory
+  assign addr_to_dmem = mem_data_addr;
   // assign store_data_to_dmem = rs2_data;
 endmodule
 
