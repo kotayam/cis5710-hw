@@ -361,6 +361,12 @@ module DatapathSingleCycle (
           rd_data = {{16{load_data_from_dmem[15]}}, load_data_from_dmem[15:0]};
         end else if (insn_lw) begin
           rd_data = load_data_from_dmem;
+        end else if (insn_lbu) begin
+          rd_data = {24'b0, load_data_from_dmem[7:0]};
+        end else if (insn_lhu) begin
+          rd_data = {16'b0, load_data_from_dmem[15:0]};
+        end else begin
+          illegal_insn = 1'b1;
         end
       end
       OpStore: begin
@@ -376,6 +382,8 @@ module DatapathSingleCycle (
         end else if (insn_sw) begin
           store_we_to_dmem = 4'b1111;
           store_data_to_dmem = rs2_data;
+        end else begin
+          illegal_insn = 1'b1;
         end
       end
       OpBranch: begin
@@ -405,11 +413,15 @@ module DatapathSingleCycle (
           if (rs1_data >= rs2_data) begin
             pcNext = pcCurrent + imm_b_sext;
           end
+        end else begin
+          illegal_insn = 1'b1;
         end
       end
       OpEnviron: begin
         if (insn_ecall) begin
           halt = 1'b1;
+        end else begin
+          illegal_insn = 1'b1;
         end
       end
       default: begin
