@@ -344,32 +344,28 @@ module DatapathSingleCycle (
         rd = insn_rd;
         rs1 = insn_rs1; 
         rs2 = insn_rs2;
-        if (is_m_extension) begin
-          case (insn_funct3)
-            3'b000: rd_data = mul_res_signed[31:0];           // MUL
-            3'b001: rd_data = mul_res_signed[63:32];          // MULH
-            3'b010: rd_data = mul_res_su[63:32];              // MULHSU
-            3'b011: rd_data = mul_res_unsigned[63:32];        // MULHU
-            3'b100: begin                                     // DIV
-                if (div_by_zero) rd_data = 32'hFFFFFFFF;
-                else if (div_overflow) rd_data = 32'h80000000;
-                else rd_data = want_neg_quotient ? (~div_quotient_raw + 32'd1) : div_quotient_raw;
-            end
-            3'b101: begin                                     // DIVU
-                if (div_by_zero) rd_data = 32'hFFFFFFFF;
-                else rd_data = div_quotient_raw;
-            end
-            3'b110: begin                                     // REM
-                if (div_by_zero) rd_data = rs1_data;
-                else if (div_overflow) rd_data = 32'h0;
-                else rd_data = want_neg_remainder ? (~div_remainder_raw + 32'd1) : div_remainder_raw;
-            end
-            3'b111: begin                                     // REMU
-                if (div_by_zero) rd_data = rs1_data;
-                else rd_data = div_remainder_raw;
-            end
-            default: rd_data = 32'b0;
-          endcase
+        if (insn_mul) begin
+            rd_data = mul_res_signed[31:0];
+        end else if (insn_mulh) begin
+            rd_data = mul_res_signed[63:32];
+        end else if (insn_mulhsu) begin
+            rd_data = mul_res_su[63:32];
+        end else if (insn_mulhu) begin
+            rd_data = mul_res_unsigned[63:32];
+        end else if (insn_div) begin
+            if (div_by_zero) rd_data = 32'hFFFFFFFF;
+            else if (div_overflow) rd_data = 32'h80000000;
+            else rd_data = want_neg_quotient ? (~div_quotient_raw + 32'd1) : div_quotient_raw;
+        end else if (insn_divu) begin
+            if (div_by_zero) rd_data = 32'hFFFFFFFF;
+            else rd_data = div_quotient_raw;
+        end else if (insn_rem) begin
+            if (div_by_zero) rd_data = rs1_data;
+            else if (div_overflow) rd_data = 32'h0;
+            else rd_data = want_neg_remainder ? (~div_remainder_raw + 32'd1) : div_remainder_raw;
+        end else if (insn_remu) begin
+            if (div_by_zero) rd_data = rs1_data;
+            else rd_data = div_remainder_raw;
         end else if (insn_add) begin
           alu_a = rs1_data;
           alu_b = rs2_data;
