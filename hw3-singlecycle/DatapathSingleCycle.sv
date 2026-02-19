@@ -440,16 +440,22 @@ module DatapathSingleCycle (
           2'b10: byte_val_dmem = load_data_from_dmem[23:16];
           2'b11: byte_val_dmem = load_data_from_dmem[31:24];
         endcase
+        // for load half
+        if (full_addr_to_dmem[1]) begin
+          half_val_dmem = load_data_from_dmem[31:16];
+        end else begin
+          half_val_dmem = load_data_from_dmem[15:0];
+        end
         if (insn_lb) begin
           rd_data = {{24{byte_val_dmem[7]}}, byte_val_dmem};
         end else if (insn_lh) begin
-          rd_data = {{16{load_data_from_dmem[15]}}, load_data_from_dmem[15:0]};
+          rd_data = {{16{half_val_dmem[15]}}, half_val_dmem};
         end else if (insn_lw) begin
           rd_data = load_data_from_dmem;
         end else if (insn_lbu) begin
           rd_data = {24'b0, byte_val_dmem};
         end else if (insn_lhu) begin
-          rd_data = {16'b0, load_data_from_dmem[15:0]};
+          rd_data = {16'b0, half_val_dmem};
         end else begin
           illegal_insn = 1'b1;
         end
