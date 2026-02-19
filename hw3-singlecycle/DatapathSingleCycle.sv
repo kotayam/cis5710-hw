@@ -246,6 +246,43 @@ module DatapathSingleCycle (
     .sum(alu_sum)
   );
 
+  // M-Extension Logic
+  logic is_m_extension;
+  assign is_m_extension = (insn_opcode == 7'b0110011) && (insn_funct7 == 7'b0000001);
+
+  // Multiplication
+  logic [63:0] mul_res_signed, mul_res_unsigned, mul_res_su;
+  assign mul_res_signed   = $signed(rs1_data) * $signed(rs2_data);
+  assign mul_res_unsigned = rs1_data * rs2_data;
+  assign mul_res_su       = $signed(rs1_data) * $signed({1'b0, rs2_data});
+
+  // Division
+  logic is_div_signed;
+  assign is_div_signed = ~insn_funct3[0]; 
+
+  logic [31:0] div_abs_a, div_abs_b;
+  assign div_abs_a = (is_div_signed && rs1_data[31]) ? (~rs1_data + 32'd1) : rs1_data;
+  assign div_abs_b = (is_div_signed && rs2_data[31]) ? (~rs2_data + 32'd1) : rs2_data;
+
+  logic [31:0] div_quotient_raw, div_remainder_raw;
+
+  // Divider for ALU
+  DividerUnsigned divider_inst (
+      .i_dividend(div_abs_a),
+      .i_divisor (div_abs_b),
+      .o_quotient(div_quotient_raw),
+      .o_remainder(div_remainder_raw)
+  );
+
+  // Division Sign Correction
+  logic want_neg_quotient, want_neg_remainder;
+  assign want_neg_quotient = is_div_signed && (rs1_data[31] ^ rs2_data[31]);
+  assign want_neg_remainder = is_div_signed && rs1_data[31];
+
+  logic div_by_zero, div_overflow;
+  assign div_by_zero = (rs2_data == 0);
+  assign div_overflow = (rs1_data == 32'h80000000) && (rs2_data == 32'hFFFFFFFF) && is_div_signed;
+
   logic illegal_insn;
 
   always_comb begin
@@ -305,9 +342,35 @@ module DatapathSingleCycle (
       OpRegReg: begin
         we = 1'b1;
         rd = insn_rd;
-        rs1 = insn_rs1;
+        rs1 = insn_rs1; 
         rs2 = insn_rs2;
-        if (insn_add) begin
+        if (is_m_extension) begin
+          case (insn_funct3)
+            3'b000: rd_data = mul_res_signed[31:0];           // MUL
+            3'b001: rd_data = mul_res_signed[63:32];          // MULH
+            3'b010: rd_data = mul_res_su[63:32];              // MULHSU
+            3'b011: rd_data = mul_res_unsigned[63:32];        // MULHU
+            3'b100: begin                                     // DIV
+                if (div_by_zero) rd_data = 32'hFFFFFFFF;
+                else if (div_overflow) rd_data = 32'h80000000;
+                else rd_data = want_neg_quotient ? (~div_quotient_raw + 32'd1) : div_quotient_raw;
+            end
+            3'b101: begin                                     // DIVU
+                if (div_by_zero) rd_data = 32'hFFFFFFFF;
+                else rd_data = div_quotient_raw;
+            end
+            3'b110: begin                                     // REM
+                if (div_by_zero) rd_data = rs1_data;
+                else if (div_overflow) rd_data = 32'h0;
+                else rd_data = want_neg_remainder ? (~div_remainder_raw + 32'd1) : div_remainder_raw;
+            end
+            3'b111: begin                                     // REMU
+                if (div_by_zero) rd_data = rs1_data;
+                else rd_data = div_remainder_raw;
+            end
+            default: rd_data = 32'b0;
+          endcase
+        end else if (insn_add) begin
           alu_a = rs1_data;
           alu_b = rs2_data;
           rd_data = alu_sum;
@@ -335,6 +398,19 @@ module DatapathSingleCycle (
         end else begin
           illegal_insn = 1'b1;
         end
+      end
+      OpJal: begin
+          we = 1'b1;
+          rd = insn_rd;
+          rd_data = pcCurrent + 32'd4;
+          pcNext = pcCurrent + $signed(imm_j_sext);
+      end
+      OpJalr: begin
+          we = 1'b1;
+          rd = insn_rd;
+          rs1 = insn_rs1;
+          rd_data = pcCurrent + 32'd4;
+          pcNext = (rs1_data + $signed(imm_i_sext)) & ~32'b1;
       end
       OpBranch: begin
         we = 1'b0;
