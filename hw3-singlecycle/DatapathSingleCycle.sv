@@ -463,9 +463,16 @@ module DatapathSingleCycle (
       OpStore: begin
         rs1 = insn_rs1;
         rs2 = insn_rs2;
-        addr_to_dmem = rs1_data + imm_s_sext;
+        full_addr_to_dmem = rs1_data + imm_s_sext;
+        // make sure 4B aligned
+        addr_to_dmem = {full_addr_to_dmem[31:2], 2'b00};
         if (insn_sb) begin
-          store_we_to_dmem = 4'b0001;
+          case (full_addr_to_dmem[1:0])
+            2'b00: store_we_to_dmem = 4'b0001;
+            2'b01: store_we_to_dmem = 4'b0010;
+            2'b10: store_we_to_dmem = 4'b0100;
+            2'b11: store_we_to_dmem = 4'b1000;
+          endcase
           store_data_to_dmem = {4{rs2_data[7:0]}};
         end else if (insn_sh) begin
           store_we_to_dmem = 4'b0011;
