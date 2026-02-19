@@ -475,7 +475,11 @@ module DatapathSingleCycle (
           endcase
           store_data_to_dmem = {4{rs2_data[7:0]}};
         end else if (insn_sh) begin
-          store_we_to_dmem = 4'b0011;
+          if (full_addr_to_dmem[1]) begin
+            store_we_to_dmem = 4'b1100;
+          end else begin
+            store_we_to_dmem = 4'b0011;
+          end
           store_data_to_dmem = {2{rs2_data[15:0]}};
         end else if (insn_sw) begin
           store_we_to_dmem = 4'b1111;
