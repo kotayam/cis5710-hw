@@ -417,6 +417,7 @@ module DatapathSingleCycle (
           rs1 = insn_rs1;
           rd_data = pcCurrent + 32'd4;
           pcNext = (rs1_data + $signed(imm_i_sext)) & ~32'b1;
+      end
       OpLoad: begin
         we = 1'b1;
         rd = insn_rd;
