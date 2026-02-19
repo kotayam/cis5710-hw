@@ -283,6 +283,11 @@ module DatapathSingleCycle (
   assign div_by_zero = (rs2_data == 0);
   assign div_overflow = (rs1_data == 32'h80000000) && (rs2_data == 32'hFFFFFFFF) && is_div_signed;
 
+  // full data memory address 
+  logic [`REG_SIZE] full_addr_to_dmem;
+  logic [7:0] byte_val_dmem;
+  logic [15:0] half_val_dmem;
+
   logic illegal_insn;
 
   always_comb begin
@@ -306,6 +311,9 @@ module DatapathSingleCycle (
     pcNext = pcCurrent + 32'd4;
 
     // default values for data memory
+    full_addr_to_dmem = 32'b0;
+    byte_val_dmem = 8'b0;
+    half_val_dmem = 16'b0;
     addr_to_dmem = 32'b0;
     store_data_to_dmem = 32'b0;
     store_we_to_dmem = 4'b0;
@@ -417,21 +425,37 @@ module DatapathSingleCycle (
           rs1 = insn_rs1;
           rd_data = pcCurrent + 32'd4;
           pcNext = (rs1_data + $signed(imm_i_sext)) & ~32'b1;
+      end
       OpLoad: begin
         we = 1'b1;
         rd = insn_rd;
         rs1 = insn_rs1;
-        addr_to_dmem = rs1_data + imm_i_sext;
+        full_addr_to_dmem = rs1_data + imm_i_sext;
+        // make sure 4B aligned
+        addr_to_dmem = {full_addr_to_dmem[31:2], 2'b00};
+        // for load byte
+        case (full_addr_to_dmem[1:0])
+          2'b00: byte_val_dmem = load_data_from_dmem[7:0];
+          2'b01: byte_val_dmem = load_data_from_dmem[15:8];
+          2'b10: byte_val_dmem = load_data_from_dmem[23:16];
+          2'b11: byte_val_dmem = load_data_from_dmem[31:24];
+        endcase
+        // for load half
+        if (full_addr_to_dmem[1]) begin
+          half_val_dmem = load_data_from_dmem[31:16];
+        end else begin
+          half_val_dmem = load_data_from_dmem[15:0];
+        end
         if (insn_lb) begin
-          rd_data = {{24{load_data_from_dmem[7]}}, load_data_from_dmem[7:0]};
+          rd_data = {{24{byte_val_dmem[7]}}, byte_val_dmem};
         end else if (insn_lh) begin
-          rd_data = {{16{load_data_from_dmem[15]}}, load_data_from_dmem[15:0]};
+          rd_data = {{16{half_val_dmem[15]}}, half_val_dmem};
         end else if (insn_lw) begin
           rd_data = load_data_from_dmem;
         end else if (insn_lbu) begin
-          rd_data = {24'b0, load_data_from_dmem[7:0]};
+          rd_data = {24'b0, byte_val_dmem};
         end else if (insn_lhu) begin
-          rd_data = {16'b0, load_data_from_dmem[15:0]};
+          rd_data = {16'b0, half_val_dmem};
         end else begin
           illegal_insn = 1'b1;
         end
@@ -439,12 +463,23 @@ module DatapathSingleCycle (
       OpStore: begin
         rs1 = insn_rs1;
         rs2 = insn_rs2;
-        addr_to_dmem = rs1_data + imm_s_sext;
+        full_addr_to_dmem = rs1_data + imm_s_sext;
+        // make sure 4B aligned
+        addr_to_dmem = {full_addr_to_dmem[31:2], 2'b00};
         if (insn_sb) begin
-          store_we_to_dmem = 4'b0001;
+          case (full_addr_to_dmem[1:0])
+            2'b00: store_we_to_dmem = 4'b0001;
+            2'b01: store_we_to_dmem = 4'b0010;
+            2'b10: store_we_to_dmem = 4'b0100;
+            2'b11: store_we_to_dmem = 4'b1000;
+          endcase
           store_data_to_dmem = {4{rs2_data[7:0]}};
         end else if (insn_sh) begin
-          store_we_to_dmem = 4'b0011;
+          if (full_addr_to_dmem[1]) begin
+            store_we_to_dmem = 4'b1100;
+          end else begin
+            store_we_to_dmem = 4'b0011;
+          end
           store_data_to_dmem = {2{rs2_data[15:0]}};
         end else if (insn_sw) begin
           store_we_to_dmem = 4'b1111;
