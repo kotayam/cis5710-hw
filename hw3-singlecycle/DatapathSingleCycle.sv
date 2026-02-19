@@ -433,20 +433,21 @@ module DatapathSingleCycle (
         full_addr_to_dmem = rs1_data + imm_i_sext;
         // make sure 4B aligned
         addr_to_dmem = {full_addr_to_dmem[31:2], 2'b00};
+        // for load byte
+        case (full_addr_to_dmem[1:0])
+          2'b00: byte_val_dmem = load_data_from_dmem[7:0];
+          2'b01: byte_val_dmem = load_data_from_dmem[15:8];
+          2'b10: byte_val_dmem = load_data_from_dmem[23:16];
+          2'b11: byte_val_dmem = load_data_from_dmem[31:24];
+        endcase
         if (insn_lb) begin
-          case (full_addr_to_dmem[1:0])
-            2'b00: byte_val_dmem = load_data_from_dmem[7:0];
-            2'b01: byte_val_dmem = load_data_from_dmem[15:8];
-            2'b10: byte_val_dmem = load_data_from_dmem[23:16];
-            2'b11: byte_val_dmem = load_data_from_dmem[31:24];
-          endcase
-          rd_data = {{24{byte_val_dmem[7]}}, byte_val_dmem[7:0]};
+          rd_data = {{24{byte_val_dmem[7]}}, byte_val_dmem};
         end else if (insn_lh) begin
           rd_data = {{16{load_data_from_dmem[15]}}, load_data_from_dmem[15:0]};
         end else if (insn_lw) begin
           rd_data = load_data_from_dmem;
         end else if (insn_lbu) begin
-          rd_data = {24'b0, load_data_from_dmem[7:0]};
+          rd_data = {24'b0, byte_val_dmem};
         end else if (insn_lhu) begin
           rd_data = {16'b0, load_data_from_dmem[15:0]};
         end else begin
