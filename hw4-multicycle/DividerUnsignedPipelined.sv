@@ -11,47 +11,48 @@ module DividerUnsignedPipelined (
     output logic [31:0] o_remainder,
     output logic [31:0] o_quotient
 );
-    wire [31:0] d_tmp[5], r_tmp[5], q_tmp[5];
-    logic [31:0] d_res, r_res, q_res;
-    logic [3:0] count = 0;
-
-    // set first div input
-    assign d_tmp[0] = (count == 0) ? i_dividend : d_res;
-    assign r_tmp[0] = (count == 0) ? 32'b0 : r_res;
-    assign q_tmp[0] = (count == 0) ? 32'b0 : q_res;
+    // account for initial value and final result (8 + 2)
+    logic [31:0] d_reg[9], r_reg[9], q_reg[9], div_reg[9];
+    assign d_reg[0] = i_dividend;
+    assign div_reg[0] = i_divisor;
+    assign r_reg[0] = 32'b0;
+    assign q_reg[0] = 32'b0;
 
     genvar i;
-    for (i = 0; i < 4; i++) begin
-        divu_1iter doi(
-            .i_dividend(d_tmp[i]), 
-            .i_divisor(i_divisor), 
-            .i_remainder(r_tmp[i]), 
-            .i_quotient(q_tmp[i]),
-            .o_dividend(d_tmp[i + 1]), 
-            .o_remainder(r_tmp[i + 1]),
-            .o_quotient(q_tmp[i + 1])
-        );
-    end
+    for (i = 0; i < 8; i++) begin
+        wire [31:0] d_tmp[5], r_tmp[5], q_tmp[5];
+        assign d_tmp[0] = d_reg[i];
+        assign r_tmp[0] = r_reg[i];
+        assign q_tmp[0] = q_reg[i];
+        genvar j;
+        for (j = 0; j < 4; j++) begin
+            divu_1iter doi(
+                .i_dividend(d_tmp[j]), 
+                .i_divisor(div_reg[i]), 
+                .i_remainder(r_tmp[j]), 
+                .i_quotient(q_tmp[j]),
+                .o_dividend(d_tmp[j + 1]), 
+                .o_remainder(r_tmp[j + 1]),
+                .o_quotient(q_tmp[j + 1])
+            );
+        end
 
-    always_ff @(posedge clk) begin
-        if (rst) begin
-            count <= 0;
-        end else begin
-            // use most recent calculation result
-            d_res <= d_tmp[4];
-            r_res <= r_tmp[4];
-            q_res <= q_tmp[4];
-            if (count < 7) begin
-                count <= count + 1;
-            end else begin 
-                // Done
-                count <= 0;
-            end
+        always_ff @(posedge clk) begin
+            if (rst) begin
+                d_reg[i + 1] <= 32'b0;
+                r_reg[i + 1] <= 32'b0;
+                q_reg[i + 1] <= 32'b0;
+                div_reg[i + 1] <= 32'b0;
+            end else begin
+                d_reg[i + 1] <= d_tmp[4];
+                r_reg[i + 1] <= r_tmp[4];
+                q_reg[i + 1] <= q_tmp[4];
+                div_reg[i + 1] <= div_reg[i];
+            end         
         end
     end
-
-    assign o_remainder = r_res;
-    assign o_quotient = q_res;
+    assign o_remainder = r_reg[8];
+    assign o_quotient = q_reg[8];
 endmodule
 
 
