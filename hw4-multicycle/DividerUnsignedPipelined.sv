@@ -37,22 +37,26 @@ module DividerUnsignedPipelined (
             );
         end
 
-        always_ff @(posedge clk) begin
-            if (rst) begin
-                d_reg[i + 1] <= 32'b0;
-                r_reg[i + 1] <= 32'b0;
-                q_reg[i + 1] <= 32'b0;
-                div_reg[i + 1] <= 32'b0;
-            end else begin
-                d_reg[i + 1] <= d_tmp[4];
-                r_reg[i + 1] <= r_tmp[4];
-                q_reg[i + 1] <= q_tmp[4];
-                div_reg[i + 1] <= div_reg[i];
-            end         
+        if (i < 7) begin : gen_ff_stage
+            always_ff @(posedge clk) begin
+                if (rst) begin
+                    d_reg[i + 1] <= 32'b0;
+                    r_reg[i + 1] <= 32'b0;
+                    q_reg[i + 1] <= 32'b0;
+                    div_reg[i + 1] <= 32'b0;
+                end else begin
+                    d_reg[i + 1] <= d_tmp[4];
+                    r_reg[i + 1] <= r_tmp[4];
+                    q_reg[i + 1] <= q_tmp[4];
+                    div_reg[i + 1] <= div_reg[i];
+                end         
+            end
+        end else begin : gen_output_stage
+            // assign output on the last stage
+            assign o_remainder = r_tmp[4];
+            assign o_quotient = q_tmp[4];
         end
     end
-    assign o_remainder = r_reg[8];
-    assign o_quotient = q_reg[8];
 endmodule
 
 
