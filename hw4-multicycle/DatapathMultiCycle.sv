@@ -173,6 +173,8 @@ module DatapathMultiCycle (
   wire insn_divu   = insn_opcode == OpRegReg && insn_from_imem[31:25] == 7'd1 && insn_from_imem[14:12] == 3'b101;
   wire insn_rem    = insn_opcode == OpRegReg && insn_from_imem[31:25] == 7'd1 && insn_from_imem[14:12] == 3'b110;
   wire insn_remu   = insn_opcode == OpRegReg && insn_from_imem[31:25] == 7'd1 && insn_from_imem[14:12] == 3'b111;
+  // true if insn uses divider
+  wire insn_uses_divider = insn_div || insn_divu || insn_rem || insn_remu;
 
   wire insn_ecall = insn_opcode == OpEnviron && insn_from_imem[31:7] == 25'd0;
   wire insn_fence = insn_opcode == OpMiscMem;
@@ -346,7 +348,7 @@ module DatapathMultiCycle (
       end else begin
           div_stage_next = div_stage + 1;
       end
-    end else if (insn_div || insn_divu || insn_rem || insn_remu) begin
+    end else if (insn_uses_divider) begin
       in_div_state_next = 1;
       div_stage_next = 0;
     end
@@ -580,7 +582,7 @@ module DatapathMultiCycle (
   // assign outputs
   assign trace_completed_pc = pcCurrent;
   assign trace_completed_insn = insn_from_imem;
-  assign trace_completed_cycle_status = CYCLE_NO_STALL;
+  assign trace_completed_cycle_status = (in_div_state_next) ? CYCLE_DIV : CYCLE_NO_STALL;
 endmodule
 
 module MemorySingleCycle #(
