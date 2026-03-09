@@ -293,8 +293,19 @@ module DatapathMultiCycle (
   logic illegal_insn;
 
   // counter for the div instructions
-  logic [3:0] count_div;
+  logic [3:0] div_stage;
+  logic [3:0] div_stage_next;
   logic in_div_state;
+  logic in_div_state_next;
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      div_stage <= 0;
+      in_div_state <= 0;
+    end else begin
+      div_stage <= div_stage_next;
+      in_div_state <= in_div_state_next;
+    end
+  end
 
   always_comb begin
     // set defaults
@@ -324,8 +335,9 @@ module DatapathMultiCycle (
     store_data_to_dmem = 32'b0;
     store_we_to_dmem = 4'b0;
 
-    count_div = 0;
-    in_div_state = 0;
+    // default values for pipelined divider
+    div_stage_next = 0;
+    in_div_state_next = 0;
 
     case (insn_opcode)
       OpLui: begin
@@ -380,8 +392,8 @@ module DatapathMultiCycle (
         end else if (insn_mulhu) begin
             rd_data = mul_res_unsigned[63:32];
         end else if (insn_div || insn_divu || insn_rem || insn_remu || in_div_state) begin
-          in_div_state = 1'b1;
-          if (count_div == 8) begin
+          in_div_state_next = 1;
+          if (div_stage == 7) begin
             if (insn_div) begin
                 if (div_by_zero) rd_data = 32'hFFFFFFFF;
                 else if (div_overflow) rd_data = 32'h80000000;
@@ -397,10 +409,10 @@ module DatapathMultiCycle (
                 if (div_by_zero) rd_data = rs1_data;
                 else rd_data = div_remainder_raw;
             end
-            count_div = 0;
-            in_div_state = 1'b0;
+            div_stage_next = 0;
+            in_div_state_next = 0;
           end else begin
-            count_div = count_div + 1;
+            div_stage_next = div_stage_next + 1;
           end
         end else if (insn_add) begin
           alu_a = rs1_data;
