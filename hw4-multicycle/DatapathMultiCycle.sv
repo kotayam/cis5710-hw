@@ -336,8 +336,24 @@ module DatapathMultiCycle (
     store_we_to_dmem = 4'b0;
 
     // default values for pipelined divider
-    div_stage_next = 0;
-    in_div_state_next = 0;
+    div_stage_next = div_stage;
+    in_div_state_next = in_div_state;
+    // set states for divider
+    if (in_div_state) begin
+      if (div_stage == 7) begin
+          div_stage_next = 0;
+          in_div_state_next = 0;
+      end else begin
+          div_stage_next = div_stage + 1;
+      end
+    end else if (insn_div || insn_divu || insn_rem || insn_remu) begin
+      in_div_state_next = 1;
+      div_stage_next = 0;
+    end
+    // do not increment pc during div
+    if (in_div_state_next) begin
+      pcNext = pcCurrent;
+    end
 
     case (insn_opcode)
       OpLui: begin
@@ -391,8 +407,7 @@ module DatapathMultiCycle (
             rd_data = mul_res_su[63:32];
         end else if (insn_mulhu) begin
             rd_data = mul_res_unsigned[63:32];
-        end else if (insn_div || insn_divu || insn_rem || insn_remu || in_div_state) begin
-          in_div_state_next = 1;
+        end else if (in_div_state) begin
           if (div_stage == 7) begin
             if (insn_div) begin
                 if (div_by_zero) rd_data = 32'hFFFFFFFF;
@@ -412,7 +427,7 @@ module DatapathMultiCycle (
             div_stage_next = 0;
             in_div_state_next = 0;
           end else begin
-            div_stage_next = div_stage_next + 1;
+            div_stage_next = div_stage + 1;
           end
         end else if (insn_add) begin
           alu_a = rs1_data;
