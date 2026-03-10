@@ -91,8 +91,8 @@ typedef struct packed {
   logic [`REG_SIZE] pc;
   logic [`INSN_SIZE] insn;
   cycle_status_e cycle_status;
-  wire [`REG_SIZE] rs1_data;
-  wire [`REG_SIZE] rs2_data;
+  logic [`REG_SIZE] rs1_data;
+  logic [`REG_SIZE] rs2_data;
 } stage_execute_t;
 
 module DatapathPipelined (
@@ -117,19 +117,19 @@ module DatapathPipelined (
 );
 
   // opcodes - see section 19 of RiscV spec
-  localparam bit [`OPCODE_SIZE] OpcodeLoad = 7'b00_000_11;
-  localparam bit [`OPCODE_SIZE] OpcodeStore = 7'b01_000_11;
-  localparam bit [`OPCODE_SIZE] OpcodeBranch = 7'b11_000_11;
-  localparam bit [`OPCODE_SIZE] OpcodeJalr = 7'b11_001_11;
-  localparam bit [`OPCODE_SIZE] OpcodeMiscMem = 7'b00_011_11;
-  localparam bit [`OPCODE_SIZE] OpcodeJal = 7'b11_011_11;
+  localparam bit [`OPCODE_SIZE] OpLoad = 7'b00_000_11;
+  localparam bit [`OPCODE_SIZE] OpStore = 7'b01_000_11;
+  localparam bit [`OPCODE_SIZE] OpBranch = 7'b11_000_11;
+  localparam bit [`OPCODE_SIZE] OpJalr = 7'b11_001_11;
+  localparam bit [`OPCODE_SIZE] OpMiscMem = 7'b00_011_11;
+  localparam bit [`OPCODE_SIZE] OpJal = 7'b11_011_11;
 
-  localparam bit [`OPCODE_SIZE] OpcodeRegImm = 7'b00_100_11;
-  localparam bit [`OPCODE_SIZE] OpcodeRegReg = 7'b01_100_11;
-  localparam bit [`OPCODE_SIZE] OpcodeEnviron = 7'b11_100_11;
+  localparam bit [`OPCODE_SIZE] OpRegImm = 7'b00_100_11;
+  localparam bit [`OPCODE_SIZE] OpRegReg = 7'b01_100_11;
+  localparam bit [`OPCODE_SIZE] OpEnviron = 7'b11_100_11;
 
-  localparam bit [`OPCODE_SIZE] OpcodeAuipc = 7'b00_101_11;
-  localparam bit [`OPCODE_SIZE] OpcodeLui = 7'b01_101_11;
+  localparam bit [`OPCODE_SIZE] OpAuipc = 7'b00_101_11;
+  localparam bit [`OPCODE_SIZE] OpLui = 7'b01_101_11;
 
   // cycle counter, not really part of any stage but useful for orienting within GtkWave
   // do not rename this as the testbench uses this value
@@ -232,6 +232,7 @@ module DatapathPipelined (
     .rs2_data(rs2_data));
   
   stage_execute_t execute_state;
+  logic [`REG_SIZE] x_pc_next;
   always_ff @(posedge clk) begin
     if (rst) begin
       execute_state <= '{
@@ -244,8 +245,8 @@ module DatapathPipelined (
     end else begin
       begin
         execute_state <= '{
-          pc: f_pc_current,
-          insn: f_insn,
+          pc: x_pc_next,
+          insn: decode_state.insn,
           cycle_status: f_cycle_status,
           rs1_data: rs1_data,
           rs2_data: rs2_data
@@ -390,7 +391,7 @@ module DatapathPipelined (
     halt = 1'b0;
 
     // increment pc by 4 default
-    pcNext = pcCurrent + 32'd4;
+    x_pc_next = decode_state.pc + 32'd4;
 
     case (insn_opcode)
       OpLui: begin
@@ -471,42 +472,42 @@ module DatapathPipelined (
       OpJal: begin
           we = 1'b1;
           rd = insn_rd;
-          rd_data = pcCurrent + 32'd4;
-          pcNext = pcCurrent + $signed(imm_j_sext);
+          rd_data = decode_state.pc + 32'd4;
+          x_pc_next = decode_state.pc + $signed(imm_j_sext);
       end
       OpJalr: begin
           we = 1'b1;
           rd = insn_rd;
           rs1 = insn_rs1;
-          rd_data = pcCurrent + 32'd4;
-          pcNext = (rs1_data + $signed(imm_i_sext)) & ~32'b1;
+          rd_data = decode_state.pc + 32'd4;
+          x_pc_next = (rs1_data + $signed(imm_i_sext)) & ~32'b1;
       end
       OpBranch: begin
         rs1 = insn_rs1;
         rs2 = insn_rs2;
         if (insn_beq) begin
           if (rs1_data == rs2_data) begin
-            pcNext = pcCurrent + imm_b_sext;
+            x_pc_next = decode_state.pc + imm_b_sext;
           end
         end else if (insn_bne) begin
           if (rs1_data != rs2_data) begin
-            pcNext = pcCurrent + imm_b_sext;
+            x_pc_next = decode_state.pc + imm_b_sext;
           end
         end else if (insn_blt) begin
           if ($signed(rs1_data) < $signed(rs2_data)) begin
-            pcNext = pcCurrent + imm_b_sext;
+            x_pc_next = decode_state.pc + imm_b_sext;
           end
         end else if (insn_bge) begin
           if ($signed(rs1_data) >= $signed(rs2_data)) begin
-            pcNext = pcCurrent + imm_b_sext;
+            x_pc_next = decode_state.pc + imm_b_sext;
           end
         end else if (insn_bltu) begin
           if (rs1_data < rs2_data) begin
-            pcNext = pcCurrent + imm_b_sext;
+            x_pc_next = decode_state.pc + imm_b_sext;
           end
         end else if (insn_bgeu) begin
           if (rs1_data >= rs2_data) begin
-            pcNext = pcCurrent + imm_b_sext;
+            x_pc_next = decode_state.pc + imm_b_sext;
           end
         end else begin
           illegal_insn = 1'b1;
@@ -526,9 +527,9 @@ module DatapathPipelined (
   end
 
   // assign outputs
-  assign trace_completed_pc = pcCurrent;
+  assign trace_completed_pc = execute_state.pc;
   assign trace_completed_insn = insn_from_imem;
-  assign trace_completed_cycle_status = (in_div_state_next) ? CYCLE_DIV : CYCLE_NO_STALL;
+  assign trace_completed_cycle_status = CYCLE_NO_STALL;
 endmodule
 
 module MemorySingleCycle #(
@@ -544,7 +545,7 @@ module MemorySingleCycle #(
     input wire [`REG_SIZE] pc_to_imem,
 
     // the value at memory location pc_to_imem
-    output logic [`REG_SIZE] decode_state.insn,
+    output logic [`REG_SIZE] insn_from_imem,
 
     // must always be aligned to a 4B boundary
     input wire [`REG_SIZE] addr_to_dmem,
@@ -581,7 +582,7 @@ module MemorySingleCycle #(
   always @(negedge clk) begin
     if (rst) begin
     end else begin
-      decode_state.insn <= mem_array[{pc_to_imem[AddrMsb:AddrLsb]}];
+      insn_from_imem <= mem_array[{pc_to_imem[AddrMsb:AddrLsb]}];
     end
   end
 
@@ -616,7 +617,7 @@ module Processor (
     output cycle_status_e trace_completed_cycle_status
 );
 
-  wire [`INSN_SIZE] decode_state.insn;
+  wire [`INSN_SIZE] insn_from_imem;
   wire [`REG_SIZE] pc_to_imem, mem_data_addr, mem_data_loaded_value, mem_data_to_write;
   wire [3:0] mem_data_we;
 
@@ -631,7 +632,7 @@ module Processor (
       .clk                (clk),
       // imem is read-only
       .pc_to_imem         (pc_to_imem),
-      .decode_state.insn     (decode_state.insn),
+      .insn_from_imem     (insn_from_imem),
       // dmem is read-write
       .addr_to_dmem       (mem_data_addr),
       .load_data_from_dmem(mem_data_loaded_value),
@@ -643,7 +644,7 @@ module Processor (
       .clk(clk),
       .rst(rst),
       .pc_to_imem(pc_to_imem),
-      .decode_state.insn(decode_state.insn),
+      .insn_from_imem(insn_from_imem),
       .addr_to_dmem(mem_data_addr),
       .store_data_to_dmem(mem_data_to_write),
       .store_we_to_dmem(mem_data_we),
