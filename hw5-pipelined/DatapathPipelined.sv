@@ -57,11 +57,26 @@ module RegFile (
     input logic rst
 );
   localparam int NumRegs = 32;
-  genvar i;
   logic [`REG_SIZE] regs[NumRegs];
 
-  // TODO: your code here
+  // x0 is always 0
+  assign regs[0] = 32'b0;
 
+  // set rs1 and rs2
+  assign rs1_data = regs[rs1];
+  assign rs2_data = regs[rs2];
+
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      for (int i = 1; i < NumRegs; i++) begin
+        regs[i] <= 32'b0;
+      end
+    end else begin
+      if (we && rd != 0) begin
+        regs[rd] <= rd_data;
+      end   
+    end
+  end
 endmodule
 
 /** state at the start of Decode stage */
@@ -70,6 +85,15 @@ typedef struct packed {
   logic [`INSN_SIZE] insn;
   cycle_status_e cycle_status;
 } stage_decode_t;
+
+/** state at the start of Execute stage */
+typedef struct packed {
+  logic [`REG_SIZE] pc;
+  logic [`INSN_SIZE] insn;
+  cycle_status_e cycle_status;
+  wire [`REG_SIZE] rs1_data;
+  wire [`REG_SIZE] rs2_data;
+} stage_execute_t;
 
 module DatapathPipelined (
     input wire clk,
@@ -185,6 +209,326 @@ module DatapathPipelined (
   // TODO: your code here, though you will also need to modify some of the code above
   // TODO: the testbench requires that your register file instance is named `rf`
 
+  /*****************/
+  /* EXECUTE STAGE */
+  /*****************/
+  
+  logic we;
+  logic [4:0] rd;
+  logic [`REG_SIZE] rd_data;
+  logic [4:0] rs1;
+  logic [4:0] rs2;
+  wire [`REG_SIZE] rs1_data;
+  wire [`REG_SIZE] rs2_data;
+  RegFile rf (
+    .clk(clk),
+    .rst(rst),
+    .we(we),
+    .rd(rd),
+    .rd_data(rd_data),
+    .rs1(rs1),
+    .rs2(rs2),
+    .rs1_data(rs1_data),
+    .rs2_data(rs2_data));
+  
+  stage_execute_t execute_state;
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      execute_state <= '{
+        pc: 0,
+        insn: 0,
+        cycle_status: CYCLE_RESET,
+        rs1_data: 32'b0,
+        rs2_data: 32'b0
+      };
+    end else begin
+      begin
+        execute_state <= '{
+          pc: f_pc_current,
+          insn: f_insn,
+          cycle_status: f_cycle_status,
+          rs1_data: rs1_data,
+          rs2_data: rs2_data
+        };
+      end
+    end
+  end
+
+  // components of the instruction
+  wire [6:0] insn_funct7;
+  wire [4:0] insn_rs2;
+  wire [4:0] insn_rs1;
+  wire [2:0] insn_funct3;
+  wire [4:0] insn_rd;
+  wire [`OPCODE_SIZE] insn_opcode;
+
+  // split R-type instruction - see section 2.2 of RiscV spec
+  assign {insn_funct7, insn_rs2, insn_rs1, insn_funct3, insn_rd, insn_opcode} = decode_state.insn;
+
+  // setup for I, S, B & J type instructions
+  // I - short immediates and loads
+  wire [11:0] imm_i;
+  assign imm_i = decode_state.insn[31:20];
+  wire [4:0] imm_shamt = decode_state.insn[24:20];
+
+  // S - stores
+  wire [11:0] imm_s;
+  assign imm_s[11:5] = insn_funct7, imm_s[4:0] = insn_rd;
+
+  // B - conditionals
+  wire [12:0] imm_b;
+  assign {imm_b[12], imm_b[10:5]} = insn_funct7, {imm_b[4:1], imm_b[11]} = insn_rd, imm_b[0] = 1'b0;
+
+  // J - unconditional jumps
+  wire [20:0] imm_j;
+  assign {imm_j[20], imm_j[10:1], imm_j[11], imm_j[19:12], imm_j[0]} = {decode_state.insn[31:12], 1'b0};
+
+  // U-type
+  wire [19:0] imm_u;
+  assign imm_u = decode_state.insn[31:12];
+
+  wire [`REG_SIZE] imm_i_sext = {{20{imm_i[11]}}, imm_i[11:0]};
+  wire [`REG_SIZE] imm_s_sext = {{20{imm_s[11]}}, imm_s[11:0]};
+  wire [`REG_SIZE] imm_b_sext = {{19{imm_b[12]}}, imm_b[12:0]};
+  wire [`REG_SIZE] imm_j_sext = {{11{imm_j[20]}}, imm_j[20:0]};
+
+  wire insn_lui   = insn_opcode == OpLui;
+  wire insn_auipc = insn_opcode == OpAuipc;
+  wire insn_jal   = insn_opcode == OpJal;
+  wire insn_jalr  = insn_opcode == OpJalr;
+
+  wire insn_beq  = insn_opcode == OpBranch && decode_state.insn[14:12] == 3'b000;
+  wire insn_bne  = insn_opcode == OpBranch && decode_state.insn[14:12] == 3'b001;
+  wire insn_blt  = insn_opcode == OpBranch && decode_state.insn[14:12] == 3'b100;
+  wire insn_bge  = insn_opcode == OpBranch && decode_state.insn[14:12] == 3'b101;
+  wire insn_bltu = insn_opcode == OpBranch && decode_state.insn[14:12] == 3'b110;
+  wire insn_bgeu = insn_opcode == OpBranch && decode_state.insn[14:12] == 3'b111;
+
+  wire insn_lb  = insn_opcode == OpLoad && decode_state.insn[14:12] == 3'b000;
+  wire insn_lh  = insn_opcode == OpLoad && decode_state.insn[14:12] == 3'b001;
+  wire insn_lw  = insn_opcode == OpLoad && decode_state.insn[14:12] == 3'b010;
+  wire insn_lbu = insn_opcode == OpLoad && decode_state.insn[14:12] == 3'b100;
+  wire insn_lhu = insn_opcode == OpLoad && decode_state.insn[14:12] == 3'b101;
+
+  wire insn_sb = insn_opcode == OpStore && decode_state.insn[14:12] == 3'b000;
+  wire insn_sh = insn_opcode == OpStore && decode_state.insn[14:12] == 3'b001;
+  wire insn_sw = insn_opcode == OpStore && decode_state.insn[14:12] == 3'b010;
+
+  wire insn_addi  = insn_opcode == OpRegImm && decode_state.insn[14:12] == 3'b000;
+  wire insn_slti  = insn_opcode == OpRegImm && decode_state.insn[14:12] == 3'b010;
+  wire insn_sltiu = insn_opcode == OpRegImm && decode_state.insn[14:12] == 3'b011;
+  wire insn_xori  = insn_opcode == OpRegImm && decode_state.insn[14:12] == 3'b100;
+  wire insn_ori   = insn_opcode == OpRegImm && decode_state.insn[14:12] == 3'b110;
+  wire insn_andi  = insn_opcode == OpRegImm && decode_state.insn[14:12] == 3'b111;
+
+  wire insn_slli = insn_opcode == OpRegImm && decode_state.insn[14:12] == 3'b001 && decode_state.insn[31:25] == 7'd0;
+  wire insn_srli = insn_opcode == OpRegImm && decode_state.insn[14:12] == 3'b101 && decode_state.insn[31:25] == 7'd0;
+  wire insn_srai = insn_opcode == OpRegImm && decode_state.insn[14:12] == 3'b101 && decode_state.insn[31:25] == 7'b0100000;
+
+  wire insn_add  = insn_opcode == OpRegReg && decode_state.insn[14:12] == 3'b000 && decode_state.insn[31:25] == 7'd0;
+  wire insn_sub  = insn_opcode == OpRegReg && decode_state.insn[14:12] == 3'b000 && decode_state.insn[31:25] == 7'b0100000;
+  wire insn_sll  = insn_opcode == OpRegReg && decode_state.insn[14:12] == 3'b001 && decode_state.insn[31:25] == 7'd0;
+  wire insn_slt  = insn_opcode == OpRegReg && decode_state.insn[14:12] == 3'b010 && decode_state.insn[31:25] == 7'd0;
+  wire insn_sltu = insn_opcode == OpRegReg && decode_state.insn[14:12] == 3'b011 && decode_state.insn[31:25] == 7'd0;
+  wire insn_xor  = insn_opcode == OpRegReg && decode_state.insn[14:12] == 3'b100 && decode_state.insn[31:25] == 7'd0;
+  wire insn_srl  = insn_opcode == OpRegReg && decode_state.insn[14:12] == 3'b101 && decode_state.insn[31:25] == 7'd0;
+  wire insn_sra  = insn_opcode == OpRegReg && decode_state.insn[14:12] == 3'b101 && decode_state.insn[31:25] == 7'b0100000;
+  wire insn_or   = insn_opcode == OpRegReg && decode_state.insn[14:12] == 3'b110 && decode_state.insn[31:25] == 7'd0;
+  wire insn_and  = insn_opcode == OpRegReg && decode_state.insn[14:12] == 3'b111 && decode_state.insn[31:25] == 7'd0;
+
+  wire insn_mul    = insn_opcode == OpRegReg && decode_state.insn[31:25] == 7'd1 && decode_state.insn[14:12] == 3'b000;
+  wire insn_mulh   = insn_opcode == OpRegReg && decode_state.insn[31:25] == 7'd1 && decode_state.insn[14:12] == 3'b001;
+  wire insn_mulhsu = insn_opcode == OpRegReg && decode_state.insn[31:25] == 7'd1 && decode_state.insn[14:12] == 3'b010;
+  wire insn_mulhu  = insn_opcode == OpRegReg && decode_state.insn[31:25] == 7'd1 && decode_state.insn[14:12] == 3'b011;
+  wire insn_div    = insn_opcode == OpRegReg && decode_state.insn[31:25] == 7'd1 && decode_state.insn[14:12] == 3'b100;
+  wire insn_divu   = insn_opcode == OpRegReg && decode_state.insn[31:25] == 7'd1 && decode_state.insn[14:12] == 3'b101;
+  wire insn_rem    = insn_opcode == OpRegReg && decode_state.insn[31:25] == 7'd1 && decode_state.insn[14:12] == 3'b110;
+  wire insn_remu   = insn_opcode == OpRegReg && decode_state.insn[31:25] == 7'd1 && decode_state.insn[14:12] == 3'b111;
+  // true if insn uses divider
+  wire insn_uses_divider = insn_div || insn_divu || insn_rem || insn_remu;
+
+  wire insn_ecall = insn_opcode == OpEnviron && decode_state.insn[31:7] == 25'd0;
+  wire insn_fence = insn_opcode == OpMiscMem;
+
+  // CLA for ALU operations.
+  logic [`REG_SIZE] alu_a, alu_b, alu_sum;
+  logic alu_cin;
+  CarryLookaheadAdder alu_cla (
+    .a(alu_a),
+    .b(alu_b),
+    .cin(alu_cin),
+    .sum(alu_sum)
+  );
+
+  // M-Extension Logic
+  logic is_m_extension;
+  assign is_m_extension = (insn_opcode == 7'b0110011) && (insn_funct7 == 7'b0000001);
+
+  // Multiplication
+  logic [63:0] mul_res_signed, mul_res_unsigned, mul_res_su;
+  assign mul_res_signed   = $signed(rs1_data) * $signed(rs2_data);
+  assign mul_res_unsigned = rs1_data * rs2_data;
+  assign mul_res_su       = $signed(rs1_data) * $signed({1'b0, rs2_data});
+
+  logic illegal_insn;
+
+  always_comb begin
+    // set defaults
+    illegal_insn = 1'b0;
+    we = 1'b0;
+    rd = 5'b0;
+    rd_data = 32'b0;
+    rs1 = 5'b0;
+    rs2 = 5'b0;
+
+    // ALU CLA defaults
+    alu_a = 32'b0;
+    alu_b = 32'b0;
+    alu_cin = 1'b0;
+
+    // default halt to 0
+    halt = 1'b0;
+
+    // increment pc by 4 default
+    pcNext = pcCurrent + 32'd4;
+
+    case (insn_opcode)
+      OpLui: begin
+        we = 1'b1;
+        rd = insn_rd;
+        rd_data = imm_u << 12;
+      end
+      OpRegImm: begin
+        we = 1'b1;
+        rd = insn_rd;
+        rs1 = insn_rs1;
+        if (insn_addi) begin
+          alu_a = rs1_data;
+          alu_b = imm_i_sext;
+          rd_data = alu_sum;
+        end else if (insn_slti) begin
+          rd_data = $signed(rs1_data) < $signed(imm_i_sext) ? 32'd1 : 32'd0;
+        end else if (insn_sltiu) begin
+          rd_data = rs1_data < imm_i_sext ? 32'd1 : 32'd0;
+        end else if (insn_xori) begin
+          rd_data = rs1_data ^ imm_i_sext;
+        end else if (insn_ori) begin
+          rd_data = rs1_data | imm_i_sext;
+        end else if (insn_andi) begin
+          rd_data = rs1_data & imm_i_sext;
+        end else if (insn_slli) begin
+          rd_data = rs1_data << imm_shamt;
+        end else if (insn_srli) begin
+          rd_data = rs1_data >> imm_shamt;
+        end else if (insn_srai) begin
+          rd_data = $signed(rs1_data) >>> imm_shamt;
+        end else begin
+          illegal_insn = 1'b1;
+        end
+      end
+      OpRegReg: begin
+        we = 1'b1;
+        rd = insn_rd;
+        rs1 = insn_rs1; 
+        rs2 = insn_rs2;
+        if (insn_mul) begin
+            rd_data = mul_res_signed[31:0];
+        end else if (insn_mulh) begin
+            rd_data = mul_res_signed[63:32];
+        end else if (insn_mulhsu) begin
+            rd_data = mul_res_su[63:32];
+        end else if (insn_mulhu) begin
+            rd_data = mul_res_unsigned[63:32];
+        end else if (insn_add) begin
+          alu_a = rs1_data;
+          alu_b = rs2_data;
+          rd_data = alu_sum;
+        end else if (insn_sub) begin
+          alu_a = rs1_data;
+          alu_b = ~rs2_data;
+          alu_cin = 1'b1;
+          rd_data = alu_sum;
+        end else if (insn_sll) begin
+          rd_data = rs1_data << rs2_data[4:0];
+        end else if (insn_slt) begin
+          rd_data = $signed(rs1_data) < $signed(rs2_data) ? 32'd1 : 32'd0;
+        end else if (insn_sltu) begin
+          rd_data = rs1_data < rs2_data ? 32'd1 : 32'd0;
+        end else if (insn_xor) begin
+          rd_data = rs1_data ^ rs2_data;
+        end else if (insn_srl) begin
+          rd_data = rs1_data >> rs2_data[4:0];
+        end else if (insn_sra) begin
+          rd_data = $signed(rs1_data) >>> rs2_data[4:0];
+        end else if (insn_or) begin
+          rd_data = rs1_data | rs2_data;
+        end else if (insn_and) begin
+          rd_data = rs1_data & rs2_data;
+        end else begin
+          illegal_insn = 1'b1;
+        end
+      end
+      OpJal: begin
+          we = 1'b1;
+          rd = insn_rd;
+          rd_data = pcCurrent + 32'd4;
+          pcNext = pcCurrent + $signed(imm_j_sext);
+      end
+      OpJalr: begin
+          we = 1'b1;
+          rd = insn_rd;
+          rs1 = insn_rs1;
+          rd_data = pcCurrent + 32'd4;
+          pcNext = (rs1_data + $signed(imm_i_sext)) & ~32'b1;
+      end
+      OpBranch: begin
+        rs1 = insn_rs1;
+        rs2 = insn_rs2;
+        if (insn_beq) begin
+          if (rs1_data == rs2_data) begin
+            pcNext = pcCurrent + imm_b_sext;
+          end
+        end else if (insn_bne) begin
+          if (rs1_data != rs2_data) begin
+            pcNext = pcCurrent + imm_b_sext;
+          end
+        end else if (insn_blt) begin
+          if ($signed(rs1_data) < $signed(rs2_data)) begin
+            pcNext = pcCurrent + imm_b_sext;
+          end
+        end else if (insn_bge) begin
+          if ($signed(rs1_data) >= $signed(rs2_data)) begin
+            pcNext = pcCurrent + imm_b_sext;
+          end
+        end else if (insn_bltu) begin
+          if (rs1_data < rs2_data) begin
+            pcNext = pcCurrent + imm_b_sext;
+          end
+        end else if (insn_bgeu) begin
+          if (rs1_data >= rs2_data) begin
+            pcNext = pcCurrent + imm_b_sext;
+          end
+        end else begin
+          illegal_insn = 1'b1;
+        end
+      end
+      OpEnviron: begin
+        if (insn_ecall) begin
+          halt = 1'b1;
+        end else begin
+          illegal_insn = 1'b1;
+        end
+      end
+      default: begin
+        illegal_insn = 1'b1;
+      end
+    endcase
+  end
+
+  // assign outputs
+  assign trace_completed_pc = pcCurrent;
+  assign trace_completed_insn = insn_from_imem;
+  assign trace_completed_cycle_status = (in_div_state_next) ? CYCLE_DIV : CYCLE_NO_STALL;
 endmodule
 
 module MemorySingleCycle #(
@@ -200,7 +544,7 @@ module MemorySingleCycle #(
     input wire [`REG_SIZE] pc_to_imem,
 
     // the value at memory location pc_to_imem
-    output logic [`REG_SIZE] insn_from_imem,
+    output logic [`REG_SIZE] decode_state.insn,
 
     // must always be aligned to a 4B boundary
     input wire [`REG_SIZE] addr_to_dmem,
@@ -237,7 +581,7 @@ module MemorySingleCycle #(
   always @(negedge clk) begin
     if (rst) begin
     end else begin
-      insn_from_imem <= mem_array[{pc_to_imem[AddrMsb:AddrLsb]}];
+      decode_state.insn <= mem_array[{pc_to_imem[AddrMsb:AddrLsb]}];
     end
   end
 
@@ -272,7 +616,7 @@ module Processor (
     output cycle_status_e trace_completed_cycle_status
 );
 
-  wire [`INSN_SIZE] insn_from_imem;
+  wire [`INSN_SIZE] decode_state.insn;
   wire [`REG_SIZE] pc_to_imem, mem_data_addr, mem_data_loaded_value, mem_data_to_write;
   wire [3:0] mem_data_we;
 
@@ -287,7 +631,7 @@ module Processor (
       .clk                (clk),
       // imem is read-only
       .pc_to_imem         (pc_to_imem),
-      .insn_from_imem     (insn_from_imem),
+      .decode_state.insn     (decode_state.insn),
       // dmem is read-write
       .addr_to_dmem       (mem_data_addr),
       .load_data_from_dmem(mem_data_loaded_value),
@@ -299,7 +643,7 @@ module Processor (
       .clk(clk),
       .rst(rst),
       .pc_to_imem(pc_to_imem),
-      .insn_from_imem(insn_from_imem),
+      .decode_state.insn(decode_state.insn),
       .addr_to_dmem(mem_data_addr),
       .store_data_to_dmem(mem_data_to_write),
       .store_we_to_dmem(mem_data_we),
