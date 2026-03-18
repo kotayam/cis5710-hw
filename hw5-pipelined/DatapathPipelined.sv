@@ -91,9 +91,20 @@ typedef struct packed {
   logic [`REG_SIZE] pc;
   logic [`INSN_SIZE] insn;
   cycle_status_e cycle_status;
+  logic [4:0] rd;
   logic [`REG_SIZE] rs1_data;
   logic [`REG_SIZE] rs2_data;
 } stage_execute_t;
+
+/** state at the start of Memory stage */
+typedef struct packed {
+  logic [`REG_SIZE] pc;
+  logic [`INSN_SIZE] insn;
+  cycle_status_e cycle_status;
+  logic [4:0] rd;
+  logic [`REG_SIZE] output_data;
+  logic [`REG_SIZE] rs2_data;
+} stage_memory_t;
 
 module DatapathPipelined (
     input wire clk,
@@ -206,13 +217,6 @@ module DatapathPipelined (
       .disasm(d_disasm)
   );
 
-  // TODO: your code here, though you will also need to modify some of the code above
-  // TODO: the testbench requires that your register file instance is named `rf`
-
-  /*****************/
-  /* EXECUTE STAGE */
-  /*****************/
-  
   logic we;
   logic [4:0] rd;
   logic [`REG_SIZE] rd_data;
@@ -231,46 +235,63 @@ module DatapathPipelined (
     .rs1_data(rs1_data),
     .rs2_data(rs2_data));
   
+  // components of the instruction
+  wire [4:0] insn_rs2;
+  wire [4:0] insn_rs1;
+  wire [4:0] insn_rd;
+
+  // split R-type instruction - see section 2.2 of RiscV spec
+  assign insn_rd = decode_state.insn[11:7];
+  assign insn_rs1 = decode_state.insn[19:15];
+  assign insn_rs2 = decode_state.insn[24:20];
+
+  // TODO: your code here, though you will also need to modify some of the code above
+  // TODO: the testbench requires that your register file instance is named `rf`
+
+  /*****************/
+  /* EXECUTE STAGE */
+  /*****************/
+
   stage_execute_t execute_state;
-  logic [`REG_SIZE] x_pc_next;
   always_ff @(posedge clk) begin
     if (rst) begin
       execute_state <= '{
         pc: 0,
         insn: 0,
         cycle_status: CYCLE_RESET,
+        rd: 5'b0,
         rs1_data: 32'b0,
         rs2_data: 32'b0
       };
     end else begin
       begin
         execute_state <= '{
-          pc: x_pc_next,
+          pc: decode_state.pc,
           insn: decode_state.insn,
           cycle_status: f_cycle_status,
+          rd: insn_rd,
           rs1_data: rs1_data,
           rs2_data: rs2_data
         };
       end
     end
   end
-
+  
   // components of the instruction
   wire [6:0] insn_funct7;
-  wire [4:0] insn_rs2;
-  wire [4:0] insn_rs1;
   wire [2:0] insn_funct3;
-  wire [4:0] insn_rd;
   wire [`OPCODE_SIZE] insn_opcode;
 
   // split R-type instruction - see section 2.2 of RiscV spec
-  assign {insn_funct7, insn_rs2, insn_rs1, insn_funct3, insn_rd, insn_opcode} = decode_state.insn;
+  assign insn_opcode = execute_state.insn[6:0];
+  assign insn_funct3 = execute_state.insn[14:12];
+  assign insn_funct7 = execute_state.insn[31:25];
 
   // setup for I, S, B & J type instructions
   // I - short immediates and loads
   wire [11:0] imm_i;
-  assign imm_i = decode_state.insn[31:20];
-  wire [4:0] imm_shamt = decode_state.insn[24:20];
+  assign imm_i = execute_state.insn[31:20];
+  wire [4:0] imm_shamt = execute_state.insn[24:20];
 
   // S - stores
   wire [11:0] imm_s;
@@ -282,11 +303,11 @@ module DatapathPipelined (
 
   // J - unconditional jumps
   wire [20:0] imm_j;
-  assign {imm_j[20], imm_j[10:1], imm_j[11], imm_j[19:12], imm_j[0]} = {decode_state.insn[31:12], 1'b0};
+  assign {imm_j[20], imm_j[10:1], imm_j[11], imm_j[19:12], imm_j[0]} = {execute_state.insn[31:12], 1'b0};
 
   // U-type
   wire [19:0] imm_u;
-  assign imm_u = decode_state.insn[31:12];
+  assign imm_u = execute_state.insn[31:12];
 
   wire [`REG_SIZE] imm_i_sext = {{20{imm_i[11]}}, imm_i[11:0]};
   wire [`REG_SIZE] imm_s_sext = {{20{imm_s[11]}}, imm_s[11:0]};
@@ -298,57 +319,57 @@ module DatapathPipelined (
   wire insn_jal   = insn_opcode == OpJal;
   wire insn_jalr  = insn_opcode == OpJalr;
 
-  wire insn_beq  = insn_opcode == OpBranch && decode_state.insn[14:12] == 3'b000;
-  wire insn_bne  = insn_opcode == OpBranch && decode_state.insn[14:12] == 3'b001;
-  wire insn_blt  = insn_opcode == OpBranch && decode_state.insn[14:12] == 3'b100;
-  wire insn_bge  = insn_opcode == OpBranch && decode_state.insn[14:12] == 3'b101;
-  wire insn_bltu = insn_opcode == OpBranch && decode_state.insn[14:12] == 3'b110;
-  wire insn_bgeu = insn_opcode == OpBranch && decode_state.insn[14:12] == 3'b111;
+  wire insn_beq  = insn_opcode == OpBranch && execute_state.insn[14:12] == 3'b000;
+  wire insn_bne  = insn_opcode == OpBranch && execute_state.insn[14:12] == 3'b001;
+  wire insn_blt  = insn_opcode == OpBranch && execute_state.insn[14:12] == 3'b100;
+  wire insn_bge  = insn_opcode == OpBranch && execute_state.insn[14:12] == 3'b101;
+  wire insn_bltu = insn_opcode == OpBranch && execute_state.insn[14:12] == 3'b110;
+  wire insn_bgeu = insn_opcode == OpBranch && execute_state.insn[14:12] == 3'b111;
 
-  wire insn_lb  = insn_opcode == OpLoad && decode_state.insn[14:12] == 3'b000;
-  wire insn_lh  = insn_opcode == OpLoad && decode_state.insn[14:12] == 3'b001;
-  wire insn_lw  = insn_opcode == OpLoad && decode_state.insn[14:12] == 3'b010;
-  wire insn_lbu = insn_opcode == OpLoad && decode_state.insn[14:12] == 3'b100;
-  wire insn_lhu = insn_opcode == OpLoad && decode_state.insn[14:12] == 3'b101;
+  wire insn_lb  = insn_opcode == OpLoad && execute_state.insn[14:12] == 3'b000;
+  wire insn_lh  = insn_opcode == OpLoad && execute_state.insn[14:12] == 3'b001;
+  wire insn_lw  = insn_opcode == OpLoad && execute_state.insn[14:12] == 3'b010;
+  wire insn_lbu = insn_opcode == OpLoad && execute_state.insn[14:12] == 3'b100;
+  wire insn_lhu = insn_opcode == OpLoad && execute_state.insn[14:12] == 3'b101;
 
-  wire insn_sb = insn_opcode == OpStore && decode_state.insn[14:12] == 3'b000;
-  wire insn_sh = insn_opcode == OpStore && decode_state.insn[14:12] == 3'b001;
-  wire insn_sw = insn_opcode == OpStore && decode_state.insn[14:12] == 3'b010;
+  wire insn_sb = insn_opcode == OpStore && execute_state.insn[14:12] == 3'b000;
+  wire insn_sh = insn_opcode == OpStore && execute_state.insn[14:12] == 3'b001;
+  wire insn_sw = insn_opcode == OpStore && execute_state.insn[14:12] == 3'b010;
 
-  wire insn_addi  = insn_opcode == OpRegImm && decode_state.insn[14:12] == 3'b000;
-  wire insn_slti  = insn_opcode == OpRegImm && decode_state.insn[14:12] == 3'b010;
-  wire insn_sltiu = insn_opcode == OpRegImm && decode_state.insn[14:12] == 3'b011;
-  wire insn_xori  = insn_opcode == OpRegImm && decode_state.insn[14:12] == 3'b100;
-  wire insn_ori   = insn_opcode == OpRegImm && decode_state.insn[14:12] == 3'b110;
-  wire insn_andi  = insn_opcode == OpRegImm && decode_state.insn[14:12] == 3'b111;
+  wire insn_addi  = insn_opcode == OpRegImm && execute_state.insn[14:12] == 3'b000;
+  wire insn_slti  = insn_opcode == OpRegImm && execute_state.insn[14:12] == 3'b010;
+  wire insn_sltiu = insn_opcode == OpRegImm && execute_state.insn[14:12] == 3'b011;
+  wire insn_xori  = insn_opcode == OpRegImm && execute_state.insn[14:12] == 3'b100;
+  wire insn_ori   = insn_opcode == OpRegImm && execute_state.insn[14:12] == 3'b110;
+  wire insn_andi  = insn_opcode == OpRegImm && execute_state.insn[14:12] == 3'b111;
 
-  wire insn_slli = insn_opcode == OpRegImm && decode_state.insn[14:12] == 3'b001 && decode_state.insn[31:25] == 7'd0;
-  wire insn_srli = insn_opcode == OpRegImm && decode_state.insn[14:12] == 3'b101 && decode_state.insn[31:25] == 7'd0;
-  wire insn_srai = insn_opcode == OpRegImm && decode_state.insn[14:12] == 3'b101 && decode_state.insn[31:25] == 7'b0100000;
+  wire insn_slli = insn_opcode == OpRegImm && execute_state.insn[14:12] == 3'b001 && execute_state.insn[31:25] == 7'd0;
+  wire insn_srli = insn_opcode == OpRegImm && execute_state.insn[14:12] == 3'b101 && execute_state.insn[31:25] == 7'd0;
+  wire insn_srai = insn_opcode == OpRegImm && execute_state.insn[14:12] == 3'b101 && execute_state.insn[31:25] == 7'b0100000;
 
-  wire insn_add  = insn_opcode == OpRegReg && decode_state.insn[14:12] == 3'b000 && decode_state.insn[31:25] == 7'd0;
-  wire insn_sub  = insn_opcode == OpRegReg && decode_state.insn[14:12] == 3'b000 && decode_state.insn[31:25] == 7'b0100000;
-  wire insn_sll  = insn_opcode == OpRegReg && decode_state.insn[14:12] == 3'b001 && decode_state.insn[31:25] == 7'd0;
-  wire insn_slt  = insn_opcode == OpRegReg && decode_state.insn[14:12] == 3'b010 && decode_state.insn[31:25] == 7'd0;
-  wire insn_sltu = insn_opcode == OpRegReg && decode_state.insn[14:12] == 3'b011 && decode_state.insn[31:25] == 7'd0;
-  wire insn_xor  = insn_opcode == OpRegReg && decode_state.insn[14:12] == 3'b100 && decode_state.insn[31:25] == 7'd0;
-  wire insn_srl  = insn_opcode == OpRegReg && decode_state.insn[14:12] == 3'b101 && decode_state.insn[31:25] == 7'd0;
-  wire insn_sra  = insn_opcode == OpRegReg && decode_state.insn[14:12] == 3'b101 && decode_state.insn[31:25] == 7'b0100000;
-  wire insn_or   = insn_opcode == OpRegReg && decode_state.insn[14:12] == 3'b110 && decode_state.insn[31:25] == 7'd0;
-  wire insn_and  = insn_opcode == OpRegReg && decode_state.insn[14:12] == 3'b111 && decode_state.insn[31:25] == 7'd0;
+  wire insn_add  = insn_opcode == OpRegReg && execute_state.insn[14:12] == 3'b000 && execute_state.insn[31:25] == 7'd0;
+  wire insn_sub  = insn_opcode == OpRegReg && execute_state.insn[14:12] == 3'b000 && execute_state.insn[31:25] == 7'b0100000;
+  wire insn_sll  = insn_opcode == OpRegReg && execute_state.insn[14:12] == 3'b001 && execute_state.insn[31:25] == 7'd0;
+  wire insn_slt  = insn_opcode == OpRegReg && execute_state.insn[14:12] == 3'b010 && execute_state.insn[31:25] == 7'd0;
+  wire insn_sltu = insn_opcode == OpRegReg && execute_state.insn[14:12] == 3'b011 && execute_state.insn[31:25] == 7'd0;
+  wire insn_xor  = insn_opcode == OpRegReg && execute_state.insn[14:12] == 3'b100 && execute_state.insn[31:25] == 7'd0;
+  wire insn_srl  = insn_opcode == OpRegReg && execute_state.insn[14:12] == 3'b101 && execute_state.insn[31:25] == 7'd0;
+  wire insn_sra  = insn_opcode == OpRegReg && execute_state.insn[14:12] == 3'b101 && execute_state.insn[31:25] == 7'b0100000;
+  wire insn_or   = insn_opcode == OpRegReg && execute_state.insn[14:12] == 3'b110 && execute_state.insn[31:25] == 7'd0;
+  wire insn_and  = insn_opcode == OpRegReg && execute_state.insn[14:12] == 3'b111 && execute_state.insn[31:25] == 7'd0;
 
-  wire insn_mul    = insn_opcode == OpRegReg && decode_state.insn[31:25] == 7'd1 && decode_state.insn[14:12] == 3'b000;
-  wire insn_mulh   = insn_opcode == OpRegReg && decode_state.insn[31:25] == 7'd1 && decode_state.insn[14:12] == 3'b001;
-  wire insn_mulhsu = insn_opcode == OpRegReg && decode_state.insn[31:25] == 7'd1 && decode_state.insn[14:12] == 3'b010;
-  wire insn_mulhu  = insn_opcode == OpRegReg && decode_state.insn[31:25] == 7'd1 && decode_state.insn[14:12] == 3'b011;
-  wire insn_div    = insn_opcode == OpRegReg && decode_state.insn[31:25] == 7'd1 && decode_state.insn[14:12] == 3'b100;
-  wire insn_divu   = insn_opcode == OpRegReg && decode_state.insn[31:25] == 7'd1 && decode_state.insn[14:12] == 3'b101;
-  wire insn_rem    = insn_opcode == OpRegReg && decode_state.insn[31:25] == 7'd1 && decode_state.insn[14:12] == 3'b110;
-  wire insn_remu   = insn_opcode == OpRegReg && decode_state.insn[31:25] == 7'd1 && decode_state.insn[14:12] == 3'b111;
+  wire insn_mul    = insn_opcode == OpRegReg && execute_state.insn[31:25] == 7'd1 && execute_state.insn[14:12] == 3'b000;
+  wire insn_mulh   = insn_opcode == OpRegReg && execute_state.insn[31:25] == 7'd1 && execute_state.insn[14:12] == 3'b001;
+  wire insn_mulhsu = insn_opcode == OpRegReg && execute_state.insn[31:25] == 7'd1 && execute_state.insn[14:12] == 3'b010;
+  wire insn_mulhu  = insn_opcode == OpRegReg && execute_state.insn[31:25] == 7'd1 && execute_state.insn[14:12] == 3'b011;
+  wire insn_div    = insn_opcode == OpRegReg && execute_state.insn[31:25] == 7'd1 && execute_state.insn[14:12] == 3'b100;
+  wire insn_divu   = insn_opcode == OpRegReg && execute_state.insn[31:25] == 7'd1 && execute_state.insn[14:12] == 3'b101;
+  wire insn_rem    = insn_opcode == OpRegReg && execute_state.insn[31:25] == 7'd1 && execute_state.insn[14:12] == 3'b110;
+  wire insn_remu   = insn_opcode == OpRegReg && execute_state.insn[31:25] == 7'd1 && execute_state.insn[14:12] == 3'b111;
   // true if insn uses divider
   wire insn_uses_divider = insn_div || insn_divu || insn_rem || insn_remu;
 
-  wire insn_ecall = insn_opcode == OpEnviron && decode_state.insn[31:7] == 25'd0;
+  wire insn_ecall = insn_opcode == OpEnviron && execute_state.insn[31:7] == 25'd0;
   wire insn_fence = insn_opcode == OpMiscMem;
 
   // CLA for ALU operations.
@@ -373,14 +394,11 @@ module DatapathPipelined (
 
   logic illegal_insn;
 
+  logic [`REG_SIZE] output_data;
+
   always_comb begin
     // set defaults
     illegal_insn = 1'b0;
-    we = 1'b0;
-    rd = 5'b0;
-    rd_data = 32'b0;
-    rs1 = 5'b0;
-    rs2 = 5'b0;
 
     // ALU CLA defaults
     alu_a = 32'b0;
@@ -391,123 +409,107 @@ module DatapathPipelined (
     halt = 1'b0;
 
     // increment pc by 4 default
-    x_pc_next = decode_state.pc + 32'd4;
+    f_pc_current = execute_state.pc + 32'd4;
 
     case (insn_opcode)
       OpLui: begin
-        we = 1'b1;
-        rd = insn_rd;
-        rd_data = imm_u << 12;
+        output_data = imm_u << 12;
       end
       OpRegImm: begin
-        we = 1'b1;
-        rd = insn_rd;
-        rs1 = insn_rs1;
         if (insn_addi) begin
-          alu_a = rs1_data;
+          alu_a = execute_state.rs1_data;
           alu_b = imm_i_sext;
-          rd_data = alu_sum;
+          output_data = alu_sum;
         end else if (insn_slti) begin
-          rd_data = $signed(rs1_data) < $signed(imm_i_sext) ? 32'd1 : 32'd0;
+          output_data = $signed(execute_state.rs1_data) < $signed(imm_i_sext) ? 32'd1 : 32'd0;
         end else if (insn_sltiu) begin
-          rd_data = rs1_data < imm_i_sext ? 32'd1 : 32'd0;
+          output_data = execute_state.rs1_data < imm_i_sext ? 32'd1 : 32'd0;
         end else if (insn_xori) begin
-          rd_data = rs1_data ^ imm_i_sext;
+          output_data = execute_state.rs1_data ^ imm_i_sext;
         end else if (insn_ori) begin
-          rd_data = rs1_data | imm_i_sext;
+          output_data = execute_state.rs1_data | imm_i_sext;
         end else if (insn_andi) begin
-          rd_data = rs1_data & imm_i_sext;
+          output_data = execute_state.rs1_data & imm_i_sext;
         end else if (insn_slli) begin
-          rd_data = rs1_data << imm_shamt;
+          output_data = execute_state.rs1_data << imm_shamt;
         end else if (insn_srli) begin
-          rd_data = rs1_data >> imm_shamt;
+          output_data = execute_state.rs1_data >> imm_shamt;
         end else if (insn_srai) begin
-          rd_data = $signed(rs1_data) >>> imm_shamt;
+          output_data = $signed(execute_state.rs1_data) >>> imm_shamt;
         end else begin
           illegal_insn = 1'b1;
         end
       end
       OpRegReg: begin
-        we = 1'b1;
-        rd = insn_rd;
-        rs1 = insn_rs1; 
-        rs2 = insn_rs2;
         if (insn_mul) begin
-            rd_data = mul_res_signed[31:0];
+            output_data = mul_res_signed[31:0];
         end else if (insn_mulh) begin
-            rd_data = mul_res_signed[63:32];
+            output_data = mul_res_signed[63:32];
         end else if (insn_mulhsu) begin
-            rd_data = mul_res_su[63:32];
+            output_data = mul_res_su[63:32];
         end else if (insn_mulhu) begin
-            rd_data = mul_res_unsigned[63:32];
+            output_data = mul_res_unsigned[63:32];
         end else if (insn_add) begin
-          alu_a = rs1_data;
-          alu_b = rs2_data;
-          rd_data = alu_sum;
+          alu_a = execute_state.rs1_data;
+          alu_b = execute_state.rs2_data;
+          output_data = alu_sum;
         end else if (insn_sub) begin
-          alu_a = rs1_data;
-          alu_b = ~rs2_data;
+          alu_a = execute_state.rs1_data;
+          alu_b = ~execute_state.rs2_data;
           alu_cin = 1'b1;
-          rd_data = alu_sum;
+          output_data = alu_sum;
         end else if (insn_sll) begin
-          rd_data = rs1_data << rs2_data[4:0];
+          output_data = execute_state.rs1_data << execute_state.rs2_data[4:0];
         end else if (insn_slt) begin
-          rd_data = $signed(rs1_data) < $signed(rs2_data) ? 32'd1 : 32'd0;
+          output_data = $signed(execute_state.rs1_data) < $signed(execute_state.rs2_data) ? 32'd1 : 32'd0;
         end else if (insn_sltu) begin
-          rd_data = rs1_data < rs2_data ? 32'd1 : 32'd0;
+          output_data = execute_state.rs1_data < execute_state.rs2_data ? 32'd1 : 32'd0;
         end else if (insn_xor) begin
-          rd_data = rs1_data ^ rs2_data;
+          output_data = execute_state.rs1_data ^ execute_state.rs2_data;
         end else if (insn_srl) begin
-          rd_data = rs1_data >> rs2_data[4:0];
+          output_data = execute_state.rs1_data >> execute_state.rs2_data[4:0];
         end else if (insn_sra) begin
-          rd_data = $signed(rs1_data) >>> rs2_data[4:0];
+          output_data = $signed(execute_state.rs1_data) >>> execute_state.rs2_data[4:0];
         end else if (insn_or) begin
-          rd_data = rs1_data | rs2_data;
+          output_data = execute_state.rs1_data | execute_state.rs2_data;
         end else if (insn_and) begin
-          rd_data = rs1_data & rs2_data;
+          output_data = execute_state.rs1_data & execute_state.rs2_data;
         end else begin
           illegal_insn = 1'b1;
         end
       end
       OpJal: begin
-          we = 1'b1;
-          rd = insn_rd;
-          rd_data = decode_state.pc + 32'd4;
-          x_pc_next = decode_state.pc + $signed(imm_j_sext);
+          output_data = execute_state.pc + 32'd4;
+          f_pc_current = execute_state.pc + $signed(imm_j_sext);
       end
       OpJalr: begin
-          we = 1'b1;
-          rd = insn_rd;
-          rs1 = insn_rs1;
-          rd_data = decode_state.pc + 32'd4;
-          x_pc_next = (rs1_data + $signed(imm_i_sext)) & ~32'b1;
+          output_data = execute_state.pc + 32'd4;
+          f_pc_current = (execute_state.rs1_data + $signed(imm_i_sext)) & ~32'b1;
       end
       OpBranch: begin
-        rs1 = insn_rs1;
-        rs2 = insn_rs2;
         if (insn_beq) begin
-          if (rs1_data == rs2_data) begin
-            x_pc_next = decode_state.pc + imm_b_sext;
+          if (execute_state.rs1_data == execute_state.rs2_data) begin
+            f_pc_current = execute_state.pc + imm_b_sext;
           end
         end else if (insn_bne) begin
-          if (rs1_data != rs2_data) begin
-            x_pc_next = decode_state.pc + imm_b_sext;
+          if (execute_state.rs1_data != execute_state.rs2_data) begin
+            f_pc_current = execute_state.pc + imm_b_sext;
           end
         end else if (insn_blt) begin
-          if ($signed(rs1_data) < $signed(rs2_data)) begin
-            x_pc_next = decode_state.pc + imm_b_sext;
+          if ($signed(execute_state.rs1_data) < $signed(execute_state.rs2_data)) begin
+            f_pc_current = execute_state.pc + imm_b_sext;
           end
         end else if (insn_bge) begin
-          if ($signed(rs1_data) >= $signed(rs2_data)) begin
-            x_pc_next = decode_state.pc + imm_b_sext;
+          if ($signed(execute_state.rs1_data) >= $signed(execute_state.rs2_data)) begin
+            f_pc_current = execute_state.pc + imm_b_sext;
           end
         end else if (insn_bltu) begin
-          if (rs1_data < rs2_data) begin
-            x_pc_next = decode_state.pc + imm_b_sext;
+          if (execute_state.rs1_data < execute_state.rs2_data) begin
+            f_pc_current = execute_state.pc + imm_b_sext;
           end
         end else if (insn_bgeu) begin
-          if (rs1_data >= rs2_data) begin
-            x_pc_next = decode_state.pc + imm_b_sext;
+          if (execute_state.rs1_data >= execute_state.rs2_data) begin
+            f_pc_current = execute_state.pc + imm_b_sext;
           end
         end else begin
           illegal_insn = 1'b1;
