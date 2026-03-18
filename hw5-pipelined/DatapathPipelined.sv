@@ -98,14 +98,21 @@ typedef struct packed {
 
 /** state at the start of Memory stage */
 typedef struct packed {
-  logic [`REG_SIZE] pc;
   logic [`INSN_SIZE] insn;
   cycle_status_e cycle_status;
   logic [4:0] rd;
   logic [`REG_SIZE] output_data;
-  logic [`REG_SIZE] rs2_data;
+  logic [`REG_SIZE] rs2_data; // needed for store data
 } stage_memory_t;
 
+/** state at the start of Writeback stage */
+typedef struct packed {
+  logic [`INSN_SIZE] insn;
+  cycle_status_e cycle_status;
+  logic [4:0] rd;
+  logic [`REG_SIZE] output_data;
+  logic [`REG_SIZE] rs2_data; // needed for store data
+} stage_writeback_t;
 module DatapathPipelined (
     input wire clk,
     input wire rst,
@@ -394,7 +401,7 @@ module DatapathPipelined (
 
   logic illegal_insn;
 
-  logic [`REG_SIZE] output_data;
+  logic [`REG_SIZE] x_output_data;
 
   always_comb begin
     // set defaults
@@ -413,77 +420,77 @@ module DatapathPipelined (
 
     case (insn_opcode)
       OpLui: begin
-        output_data = imm_u << 12;
+        x_output_data = imm_u << 12;
       end
       OpRegImm: begin
         if (insn_addi) begin
           alu_a = execute_state.rs1_data;
           alu_b = imm_i_sext;
-          output_data = alu_sum;
+          x_output_data = alu_sum;
         end else if (insn_slti) begin
-          output_data = $signed(execute_state.rs1_data) < $signed(imm_i_sext) ? 32'd1 : 32'd0;
+          x_output_data = $signed(execute_state.rs1_data) < $signed(imm_i_sext) ? 32'd1 : 32'd0;
         end else if (insn_sltiu) begin
-          output_data = execute_state.rs1_data < imm_i_sext ? 32'd1 : 32'd0;
+          x_output_data = execute_state.rs1_data < imm_i_sext ? 32'd1 : 32'd0;
         end else if (insn_xori) begin
-          output_data = execute_state.rs1_data ^ imm_i_sext;
+          x_output_data = execute_state.rs1_data ^ imm_i_sext;
         end else if (insn_ori) begin
-          output_data = execute_state.rs1_data | imm_i_sext;
+          x_output_data = execute_state.rs1_data | imm_i_sext;
         end else if (insn_andi) begin
-          output_data = execute_state.rs1_data & imm_i_sext;
+          x_output_data = execute_state.rs1_data & imm_i_sext;
         end else if (insn_slli) begin
-          output_data = execute_state.rs1_data << imm_shamt;
+          x_output_data = execute_state.rs1_data << imm_shamt;
         end else if (insn_srli) begin
-          output_data = execute_state.rs1_data >> imm_shamt;
+          x_output_data = execute_state.rs1_data >> imm_shamt;
         end else if (insn_srai) begin
-          output_data = $signed(execute_state.rs1_data) >>> imm_shamt;
+          x_output_data = $signed(execute_state.rs1_data) >>> imm_shamt;
         end else begin
           illegal_insn = 1'b1;
         end
       end
       OpRegReg: begin
         if (insn_mul) begin
-            output_data = mul_res_signed[31:0];
+            x_output_data = mul_res_signed[31:0];
         end else if (insn_mulh) begin
-            output_data = mul_res_signed[63:32];
+            x_output_data = mul_res_signed[63:32];
         end else if (insn_mulhsu) begin
-            output_data = mul_res_su[63:32];
+            x_output_data = mul_res_su[63:32];
         end else if (insn_mulhu) begin
-            output_data = mul_res_unsigned[63:32];
+            x_output_data = mul_res_unsigned[63:32];
         end else if (insn_add) begin
           alu_a = execute_state.rs1_data;
           alu_b = execute_state.rs2_data;
-          output_data = alu_sum;
+          x_output_data = alu_sum;
         end else if (insn_sub) begin
           alu_a = execute_state.rs1_data;
           alu_b = ~execute_state.rs2_data;
           alu_cin = 1'b1;
-          output_data = alu_sum;
+          x_output_data = alu_sum;
         end else if (insn_sll) begin
-          output_data = execute_state.rs1_data << execute_state.rs2_data[4:0];
+          x_output_data = execute_state.rs1_data << execute_state.rs2_data[4:0];
         end else if (insn_slt) begin
-          output_data = $signed(execute_state.rs1_data) < $signed(execute_state.rs2_data) ? 32'd1 : 32'd0;
+          x_output_data = $signed(execute_state.rs1_data) < $signed(execute_state.rs2_data) ? 32'd1 : 32'd0;
         end else if (insn_sltu) begin
-          output_data = execute_state.rs1_data < execute_state.rs2_data ? 32'd1 : 32'd0;
+          x_output_data = execute_state.rs1_data < execute_state.rs2_data ? 32'd1 : 32'd0;
         end else if (insn_xor) begin
-          output_data = execute_state.rs1_data ^ execute_state.rs2_data;
+          x_output_data = execute_state.rs1_data ^ execute_state.rs2_data;
         end else if (insn_srl) begin
-          output_data = execute_state.rs1_data >> execute_state.rs2_data[4:0];
+          x_output_data = execute_state.rs1_data >> execute_state.rs2_data[4:0];
         end else if (insn_sra) begin
-          output_data = $signed(execute_state.rs1_data) >>> execute_state.rs2_data[4:0];
+          x_output_data = $signed(execute_state.rs1_data) >>> execute_state.rs2_data[4:0];
         end else if (insn_or) begin
-          output_data = execute_state.rs1_data | execute_state.rs2_data;
+          x_output_data = execute_state.rs1_data | execute_state.rs2_data;
         end else if (insn_and) begin
-          output_data = execute_state.rs1_data & execute_state.rs2_data;
+          x_output_data = execute_state.rs1_data & execute_state.rs2_data;
         end else begin
           illegal_insn = 1'b1;
         end
       end
       OpJal: begin
-          output_data = execute_state.pc + 32'd4;
+          x_output_data = execute_state.pc + 32'd4;
           f_pc_current = execute_state.pc + $signed(imm_j_sext);
       end
       OpJalr: begin
-          output_data = execute_state.pc + 32'd4;
+          x_output_data = execute_state.pc + 32'd4;
           f_pc_current = (execute_state.rs1_data + $signed(imm_i_sext)) & ~32'b1;
       end
       OpBranch: begin
@@ -527,6 +534,45 @@ module DatapathPipelined (
       end
     endcase
   end
+
+  /****************/
+  /* MEMORY STAGE */
+  /****************/
+
+  stage_memory_t memory_state;
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      memory_state <= '{
+        insn: 0,
+        cycle_status: CYCLE_RESET,
+        rd: 5'b0,
+        output_data: 32'b0,
+        rs2_data: 32'b0
+      };
+    end else begin
+      begin
+        memory_state <= '{
+        insn: execute_state.insn,
+        cycle_status: execute_state.cycle_status,
+        rd: execute_state.rd,
+        output_data: x_output_data, 
+        rs2_data: execute_state.rs2_data
+        };
+      end
+    end
+  end
+  // TODO implement memory stage logic
+
+  logic [`REG_SIZE] m_output_data;
+
+  always_comb begin
+    m_output_data = execute_stage.output_data;
+  end
+
+  /*******************/
+  /* WRITEBACK STAGE */
+  /*******************/
+
 
   // assign outputs
   assign trace_completed_pc = execute_state.pc;
