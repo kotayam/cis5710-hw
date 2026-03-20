@@ -105,6 +105,7 @@ typedef struct packed {
 typedef struct packed {
   logic [`REG_SIZE] pc;
   logic [`INSN_SIZE] insn;
+  logic halt;
   cycle_status_e cycle_status;
   logic [4:0] rd;
   logic [`REG_SIZE] output_data;
@@ -115,6 +116,7 @@ typedef struct packed {
 typedef struct packed {
   logic [`REG_SIZE] pc;
   logic [`INSN_SIZE] insn;
+  logic halt;
   cycle_status_e cycle_status;
   logic [4:0] rd;
   logic [`REG_SIZE] output_data;
@@ -221,7 +223,7 @@ module DatapathPipelined (
     end else begin
       begin
         decode_state <= '{
-          pc: f_pc_current,
+          pc: branch_taken? 0 : f_pc_current,
           insn: branch_taken? `NOP_INSN : f_insn,
           cycle_status: branch_taken? CYCLE_TAKEN_BRANCH : f_cycle_status
         };
@@ -303,7 +305,7 @@ module DatapathPipelined (
       };
     end else begin
       execute_state <= '{
-        pc: decode_state.pc,
+        pc: branch_taken? 0 :decode_state.pc,
         insn: branch_taken? `NOP_INSN : decode_state.insn,
         cycle_status: branch_taken? CYCLE_TAKEN_BRANCH : decode_state.cycle_status,
         rd: insn_rd,
@@ -333,11 +335,11 @@ module DatapathPipelined (
 
   // S - stores
   wire [11:0] imm_s;
-  assign imm_s[11:5] = insn_funct7, imm_s[4:0] = insn_rd;
+  assign imm_s[11:5] = insn_funct7, imm_s[4:0] = execute_state.rd;
 
   // B - conditionals
   wire [12:0] imm_b;
-  assign {imm_b[12], imm_b[10:5]} = insn_funct7, {imm_b[4:1], imm_b[11]} = insn_rd, imm_b[0] = 1'b0;
+  assign {imm_b[12], imm_b[10:5]} = insn_funct7, {imm_b[4:1], imm_b[11]} = execute_state.rd, imm_b[0] = 1'b0;
 
   // J - unconditional jumps
   wire [20:0] imm_j;
@@ -479,6 +481,7 @@ module DatapathPipelined (
 
   logic [`REG_SIZE] x_output_data;
   logic x_branch_taken;
+  logic x_halt;
 
   always_comb begin
     // set defaults
@@ -488,7 +491,7 @@ module DatapathPipelined (
     alu_cin = 1'b0;
 
     // default halt to 0
-    halt = 1'b0;
+    x_halt = 1'b0;
 
     // increment pc by 4 default
     f_pc_next = f_pc_current + 32'd4;
@@ -604,7 +607,7 @@ module DatapathPipelined (
       end
       OpEnviron: begin
         if (insn_ecall) begin
-          halt = 1'b1;
+          x_halt = 1'b1;
         end else begin
           illegal_insn = 1'b1;
         end
@@ -628,6 +631,7 @@ module DatapathPipelined (
       memory_state <= '{
         pc: 0,
         insn: 0,
+        halt: 0,
         cycle_status: CYCLE_RESET,
         rd: 5'b0,
         output_data: 32'b0,
@@ -637,6 +641,7 @@ module DatapathPipelined (
       memory_state <= '{
         pc: execute_state.pc,
         insn: execute_state.insn,
+        halt: x_halt,
         cycle_status: execute_state.cycle_status,
         rd: execute_state.rd,
         output_data: x_output_data, 
@@ -667,26 +672,29 @@ module DatapathPipelined (
       writeback_state <= '{
         pc: 0,
         insn: 0,
+        halt: 0,
         cycle_status: CYCLE_RESET,
         rd: 5'b0,
         output_data: 32'b0,
         load_data: 32'b0
       };
     end else begin
-        writeback_state <= '{
+      writeback_state <= '{
         pc: memory_state.pc,
         insn: memory_state.insn,
+        halt: memory_state.halt,
         cycle_status: memory_state.cycle_status,
         rd: memory_state.rd,
         output_data: memory_state.output_data, 
         load_data: m_load_data
-        };
+      };
     end
   end
 
   logic [`REG_SIZE] w_rd_data;
   wire [`OPCODE_SIZE] w_insn_opcode = writeback_state.insn[6:0];
   assign rd = writeback_state.rd;
+  assign halt = writeback_state.halt;
 
   // choose appropriate data to write back
   always_comb begin
