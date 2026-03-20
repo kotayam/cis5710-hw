@@ -111,8 +111,9 @@ typedef struct packed {
   cycle_status_e cycle_status;
   logic [4:0] rd;
   logic [`REG_SIZE] output_data;
-  logic [`REG_SIZE] rs2_data; // needed for store data
+  logic [`REG_SIZE] load_data;
 } stage_writeback_t;
+
 module DatapathPipelined (
     input wire clk,
     input wire rst,
@@ -165,6 +166,7 @@ module DatapathPipelined (
   /***************/
 
   logic [`REG_SIZE] f_pc_current;
+  logic [`REG_SIZE] f_pc_next;
   wire [`REG_SIZE] f_insn;
   cycle_status_e f_cycle_status;
 
@@ -176,7 +178,7 @@ module DatapathPipelined (
       f_cycle_status <= CYCLE_NO_STALL;
     end else begin
       f_cycle_status <= CYCLE_NO_STALL;
-      f_pc_current <= f_pc_current + 4;
+      f_pc_current <= f_pc_next;
     end
   end
   // send PC to imem
@@ -416,8 +418,9 @@ module DatapathPipelined (
     halt = 1'b0;
 
     // increment pc by 4 default
-    f_pc_current = execute_state.pc + 32'd4;
-
+    f_pc_next = execute_state.pc + 32'd4;
+    x_output_data = 32'b0;
+    
     case (insn_opcode)
       OpLui: begin
         x_output_data = imm_u << 12;
@@ -487,36 +490,36 @@ module DatapathPipelined (
       end
       OpJal: begin
           x_output_data = execute_state.pc + 32'd4;
-          f_pc_current = execute_state.pc + $signed(imm_j_sext);
+          f_pc_next = execute_state.pc + $signed(imm_j_sext);
       end
       OpJalr: begin
           x_output_data = execute_state.pc + 32'd4;
-          f_pc_current = (execute_state.rs1_data + $signed(imm_i_sext)) & ~32'b1;
+          f_pc_next = (execute_state.rs1_data + $signed(imm_i_sext)) & ~32'b1;
       end
       OpBranch: begin
         if (insn_beq) begin
           if (execute_state.rs1_data == execute_state.rs2_data) begin
-            f_pc_current = execute_state.pc + imm_b_sext;
+            f_pc_next = execute_state.pc + imm_b_sext;
           end
         end else if (insn_bne) begin
           if (execute_state.rs1_data != execute_state.rs2_data) begin
-            f_pc_current = execute_state.pc + imm_b_sext;
+            f_pc_next = execute_state.pc + imm_b_sext;
           end
         end else if (insn_blt) begin
           if ($signed(execute_state.rs1_data) < $signed(execute_state.rs2_data)) begin
-            f_pc_current = execute_state.pc + imm_b_sext;
+            f_pc_next = execute_state.pc + imm_b_sext;
           end
         end else if (insn_bge) begin
           if ($signed(execute_state.rs1_data) >= $signed(execute_state.rs2_data)) begin
-            f_pc_current = execute_state.pc + imm_b_sext;
+            f_pc_next = execute_state.pc + imm_b_sext;
           end
         end else if (insn_bltu) begin
           if (execute_state.rs1_data < execute_state.rs2_data) begin
-            f_pc_current = execute_state.pc + imm_b_sext;
+            f_pc_next = execute_state.pc + imm_b_sext;
           end
         end else if (insn_bgeu) begin
           if (execute_state.rs1_data >= execute_state.rs2_data) begin
-            f_pc_current = execute_state.pc + imm_b_sext;
+            f_pc_next = execute_state.pc + imm_b_sext;
           end
         end else begin
           illegal_insn = 1'b1;
@@ -563,21 +566,61 @@ module DatapathPipelined (
   end
   // TODO implement memory stage logic
 
-  logic [`REG_SIZE] m_output_data;
+  logic [`REG_SIZE] m_load_data;
 
   always_comb begin
-    m_output_data = execute_stage.output_data;
+    m_load_data = x_output_data;
   end
 
   /*******************/
   /* WRITEBACK STAGE */
   /*******************/
 
+  stage_writeback_t writeback_state;
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      writeback_state <= '{
+        insn: 0,
+        cycle_status: CYCLE_RESET,
+        rd: 5'b0,
+        output_data: 32'b0,
+        load_data: 32'b0
+      };
+    end else begin
+      begin
+        writeback_state <= '{
+        insn: memory_state.insn,
+        cycle_status: memory_state.cycle_status,
+        rd: memory_state.rd,
+        output_data: memory_state.output_data, 
+        load_data: m_load_data
+        };
+      end
+    end
+  end
+
+  wire [`OPCODE_SIZE] w_insn_opcode = writeback_state.insn[6:0];
+  assign rd = writeback_state.rd;
+
+  always_comb begin
+    we = 1'b1;
+    rd_data = writeback_state.output_data;
+    case (w_insn_opcode)
+      OpLoad: begin
+        rd_data = writeback_state.load_data;
+      end
+      OpStore, OpBranch, OpEnviron: begin
+        we = 1'b0;
+      end
+      default : begin
+      end
+    endcase
+  end
 
   // assign outputs
   assign trace_completed_pc = execute_state.pc;
-  assign trace_completed_insn = insn_from_imem;
-  assign trace_completed_cycle_status = CYCLE_NO_STALL;
+  assign trace_completed_insn = writeback_state.insn;
+  assign trace_completed_cycle_status = writeback_state.cycle_status;
 endmodule
 
 module MemorySingleCycle #(
