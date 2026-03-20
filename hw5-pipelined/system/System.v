@@ -1,315 +1,878 @@
-`default_nettype none
-module txuartlite (
-	i_clk,
-	i_reset,
-	i_wr,
-	i_data,
-	o_uart_tx,
-	o_busy
+module MyClockGen (
+	input_clk_25MHz,
+	clk_proc,
+	locked
 );
-	parameter [4:0] TIMING_BITS = 5'd24;
-	localparam TB = TIMING_BITS;
-	parameter [TB - 1:0] CLOCKS_PER_BAUD = 217;
-	input wire i_clk;
-	input wire i_reset;
-	input wire i_wr;
-	input wire [7:0] i_data;
-	output reg o_uart_tx;
-	output wire o_busy;
-	localparam [3:0] TXUL_BIT_ZERO = 4'h0;
-	localparam [3:0] TXUL_STOP = 4'h8;
-	localparam [3:0] TXUL_IDLE = 4'hf;
-	reg [TB - 1:0] baud_counter;
-	reg [3:0] state;
-	reg [7:0] lcl_data;
-	reg r_busy;
-	reg zero_baud_counter;
-	initial r_busy = 1'b1;
-	initial state = TXUL_IDLE;
-	always @(posedge i_clk)
-		if (i_reset) begin
-			r_busy <= 1'b1;
-			state <= TXUL_IDLE;
-		end
-		else if (!zero_baud_counter)
-			r_busy <= 1'b1;
-		else if (state > TXUL_STOP) begin
-			state <= TXUL_IDLE;
-			r_busy <= 1'b0;
-			if (i_wr && !r_busy) begin
-				r_busy <= 1'b1;
-				state <= TXUL_BIT_ZERO;
-			end
-		end
-		else begin
-			r_busy <= 1'b1;
-			if (state <= TXUL_STOP)
-				state <= state + 1'b1;
-			else
-				state <= TXUL_IDLE;
-		end
-	assign o_busy = r_busy;
-	initial lcl_data = 8'hff;
-	always @(posedge i_clk)
-		if (i_reset)
-			lcl_data <= 8'hff;
-		else if (i_wr && !r_busy)
-			lcl_data <= i_data;
-		else if (zero_baud_counter)
-			lcl_data <= {1'b1, lcl_data[7:1]};
-	initial o_uart_tx = 1'b1;
-	always @(posedge i_clk)
-		if (i_reset)
-			o_uart_tx <= 1'b1;
-		else if (i_wr && !r_busy)
-			o_uart_tx <= 1'b0;
-		else if (zero_baud_counter)
-			o_uart_tx <= lcl_data[0];
-	initial zero_baud_counter = 1'b1;
-	initial baud_counter = 0;
-	always @(posedge i_clk)
-		if (i_reset) begin
-			zero_baud_counter <= 1'b1;
-			baud_counter <= 0;
-		end
-		else begin
-			zero_baud_counter <= baud_counter == 1;
-			if (state == TXUL_IDLE) begin
-				baud_counter <= 0;
-				zero_baud_counter <= 1'b1;
-				if (i_wr && !r_busy) begin
-					baud_counter <= CLOCKS_PER_BAUD - 1'b1;
-					zero_baud_counter <= 1'b0;
-				end
-			end
-			else if (!zero_baud_counter)
-				baud_counter <= baud_counter - 1'b1;
-			else if (state > TXUL_STOP) begin
-				baud_counter <= 0;
-				zero_baud_counter <= 1'b1;
-			end
-			else if (state == TXUL_STOP)
-				baud_counter <= CLOCKS_PER_BAUD - 2;
-			else
-				baud_counter <= CLOCKS_PER_BAUD - 1'b1;
-		end
+	input input_clk_25MHz;
+	output wire clk_proc;
+	output wire locked;
+	wire clkfb;
+	(* FREQUENCY_PIN_CLKI = "25" *) (* FREQUENCY_PIN_CLKOP = "20" *) (* ICP_CURRENT = "12" *) (* LPF_RESISTOR = "8" *) (* MFG_ENABLE_FILTEROPAMP = "1" *) (* MFG_GMCREF_SEL = "2" *) EHXPLLL #(
+		.PLLRST_ENA("DISABLED"),
+		.INTFB_WAKE("DISABLED"),
+		.STDBY_ENABLE("DISABLED"),
+		.DPHASE_SOURCE("DISABLED"),
+		.OUTDIVIDER_MUXA("DIVA"),
+		.OUTDIVIDER_MUXB("DIVB"),
+		.OUTDIVIDER_MUXC("DIVC"),
+		.OUTDIVIDER_MUXD("DIVD"),
+		.CLKI_DIV(5),
+		.CLKOP_ENABLE("ENABLED"),
+		.CLKOP_DIV(30),
+		.CLKOP_CPHASE(15),
+		.CLKOP_FPHASE(0),
+		.FEEDBK_PATH("INT_OP"),
+		.CLKFB_DIV(4)
+	) pll_i(
+		.RST(1'b0),
+		.STDBY(1'b0),
+		.CLKI(input_clk_25MHz),
+		.CLKOP(clk_proc),
+		.CLKFB(clkfb),
+		.CLKINTFB(clkfb),
+		.PHASESEL0(1'b0),
+		.PHASESEL1(1'b0),
+		.PHASEDIR(1'b1),
+		.PHASESTEP(1'b1),
+		.PHASELOADREG(1'b1),
+		.PLLWAKESYNC(1'b0),
+		.ENCLKOP(1'b0),
+		.LOCK(locked)
+	);
 endmodule
-`default_nettype none
-module rxuartlite (
-	i_clk,
-	i_reset,
-	i_uart_rx,
-	o_wr,
-	o_data
+module gp1 (
+	a,
+	b,
+	g,
+	p
 );
-	parameter TIMER_BITS = 10;
-	parameter [TIMER_BITS - 1:0] CLOCKS_PER_BAUD = 217;
-	localparam TB = TIMER_BITS;
-	localparam [3:0] RXUL_BIT_ZERO = 4'h0;
-	localparam [3:0] RXUL_BIT_ONE = 4'h1;
-	localparam [3:0] RXUL_BIT_TWO = 4'h2;
-	localparam [3:0] RXUL_BIT_THREE = 4'h3;
-	localparam [3:0] RXUL_BIT_FOUR = 4'h4;
-	localparam [3:0] RXUL_BIT_FIVE = 4'h5;
-	localparam [3:0] RXUL_BIT_SIX = 4'h6;
-	localparam [3:0] RXUL_BIT_SEVEN = 4'h7;
-	localparam [3:0] RXUL_STOP = 4'h8;
-	localparam [3:0] RXUL_WAIT = 4'h9;
-	localparam [3:0] RXUL_IDLE = 4'hf;
-	input wire i_clk;
-	input wire i_reset;
-	input wire i_uart_rx;
-	output reg o_wr;
-	output reg [7:0] o_data;
-	wire [TB - 1:0] half_baud;
-	reg [3:0] state;
-	assign half_baud = {1'b0, CLOCKS_PER_BAUD[TB - 1:1]};
-	reg [TB - 1:0] baud_counter;
-	reg zero_baud_counter;
-	reg q_uart;
-	reg qq_uart;
-	reg ck_uart;
-	reg [TB - 1:0] chg_counter;
-	reg half_baud_time;
-	reg [7:0] data_reg;
-	initial q_uart = 1'b1;
-	initial qq_uart = 1'b1;
-	initial ck_uart = 1'b1;
-	always @(posedge i_clk)
-		if (i_reset)
-			{ck_uart, qq_uart, q_uart} <= 3'b111;
-		else
-			{ck_uart, qq_uart, q_uart} <= {qq_uart, q_uart, i_uart_rx};
-	initial chg_counter = {TB {1'b1}};
-	always @(posedge i_clk)
-		if (i_reset)
-			chg_counter <= {TB {1'b1}};
-		else if (qq_uart != ck_uart)
-			chg_counter <= 0;
-		else if (chg_counter != {TB {1'b1}})
-			chg_counter <= chg_counter + 1;
-	initial half_baud_time = 0;
-	always @(posedge i_clk)
-		if (i_reset)
-			half_baud_time <= 0;
-		else
-			half_baud_time <= !ck_uart && (chg_counter >= (half_baud - (1'b1 + 1'b1)));
-	initial state = RXUL_IDLE;
-	always @(posedge i_clk)
-		if (i_reset)
-			state <= RXUL_IDLE;
-		else if (state == RXUL_IDLE) begin
-			state <= RXUL_IDLE;
-			if (!ck_uart && half_baud_time)
-				state <= RXUL_BIT_ZERO;
-		end
-		else if ((state >= RXUL_WAIT) && ck_uart)
-			state <= RXUL_IDLE;
-		else if (zero_baud_counter) begin
-			if (state <= RXUL_STOP)
-				state <= state + 1;
-		end
-	always @(posedge i_clk)
-		if (zero_baud_counter && (state != RXUL_STOP))
-			data_reg <= {qq_uart, data_reg[7:1]};
-	initial o_wr = 1'b0;
-	initial o_data = 8'h00;
-	always @(posedge i_clk)
-		if (i_reset) begin
-			o_wr <= 1'b0;
-			o_data <= 8'h00;
-		end
-		else if ((zero_baud_counter && (state == RXUL_STOP)) && ck_uart) begin
-			o_wr <= 1'b1;
-			o_data <= data_reg;
-		end
-		else
-			o_wr <= 1'b0;
-	initial baud_counter = 0;
-	always @(posedge i_clk)
-		if (i_reset)
-			baud_counter <= 0;
-		else if (((state == RXUL_IDLE) && !ck_uart) && half_baud_time)
-			baud_counter <= CLOCKS_PER_BAUD - 1'b1;
-		else if (state == RXUL_WAIT)
-			baud_counter <= 0;
-		else if (zero_baud_counter && (state < RXUL_STOP))
-			baud_counter <= CLOCKS_PER_BAUD - 1'b1;
-		else if (!zero_baud_counter)
-			baud_counter <= baud_counter - 1'b1;
-	initial zero_baud_counter = 1'b1;
-	always @(posedge i_clk)
-		if (i_reset)
-			zero_baud_counter <= 1'b1;
-		else if (((state == RXUL_IDLE) && !ck_uart) && half_baud_time)
-			zero_baud_counter <= 1'b0;
-		else if (state == RXUL_WAIT)
-			zero_baud_counter <= 1'b1;
-		else if (zero_baud_counter && (state < RXUL_STOP))
-			zero_baud_counter <= 1'b0;
-		else if (baud_counter == 1)
-			zero_baud_counter <= 1'b1;
+	input wire a;
+	input wire b;
+	output wire g;
+	output wire p;
+	assign g = a & b;
+	assign p = a | b;
 endmodule
-module SystemDemo (
-	external_clk_25MHz,
-	ftdi_txd,
-	btn,
-	led,
-	ftdi_rxd,
-	wifi_gpio0
+module gpn (
+	gin,
+	pin,
+	cin,
+	gout,
+	pout,
+	cout
+);
+	parameter N = 4;
+	input wire [N - 1:0] gin;
+	input wire [N - 1:0] pin;
+	input wire cin;
+	output wire gout;
+	output wire pout;
+	output wire [N - 2:0] cout;
+	assign pout = &pin;
+	genvar _gv_i_1;
+	wire [N - 1:0] tmp_out;
+	generate
+		for (_gv_i_1 = 0; _gv_i_1 < (N - 1); _gv_i_1 = _gv_i_1 + 1) begin : genblk1
+			localparam i = _gv_i_1;
+			assign tmp_out[i] = gin[i] & (&pin[N - 1:i + 1]);
+		end
+	endgenerate
+	assign tmp_out[N - 1] = gin[N - 1];
+	assign gout = |tmp_out;
+	assign cout[0] = gin[0] | (pin[0] & cin);
+	genvar _gv_j_1;
+	generate
+		for (_gv_j_1 = 1; _gv_j_1 < (N - 1); _gv_j_1 = _gv_j_1 + 1) begin : genblk2
+			localparam j = _gv_j_1;
+			wire [j + 1:0] tmp_cout;
+			assign tmp_cout[0] = gin[j];
+			assign tmp_cout[1] = pin[j] & gin[j - 1];
+			assign tmp_cout[j + 1] = &pin[j:0] & cin;
+			genvar _gv_k_1;
+			for (_gv_k_1 = 0; _gv_k_1 < (j - 1); _gv_k_1 = _gv_k_1 + 1) begin : genblk1
+				localparam k = _gv_k_1;
+				assign tmp_cout[2 + k] = &pin[j-:2 + k] & gin[(j - 2) - k];
+			end
+			assign cout[j] = |tmp_cout;
+		end
+	endgenerate
+endmodule
+module gp4 (
+	gin,
+	pin,
+	cin,
+	gout,
+	pout,
+	cout
+);
+	input wire [3:0] gin;
+	input wire [3:0] pin;
+	input wire cin;
+	output wire gout;
+	output wire pout;
+	output wire [2:0] cout;
+	gpn #(.N(4)) g4(
+		.gin(gin),
+		.pin(pin),
+		.cin(cin),
+		.gout(gout),
+		.pout(pout),
+		.cout(cout)
+	);
+endmodule
+module gp8 (
+	gin,
+	pin,
+	cin,
+	gout,
+	pout,
+	cout
+);
+	input wire [7:0] gin;
+	input wire [7:0] pin;
+	input wire cin;
+	output wire gout;
+	output wire pout;
+	output wire [6:0] cout;
+	gpn #(.N(8)) g8(
+		.gin(gin),
+		.pin(pin),
+		.cin(cin),
+		.gout(gout),
+		.pout(pout),
+		.cout(cout)
+	);
+endmodule
+module CarryLookaheadAdder (
+	a,
+	b,
+	cin,
+	sum
+);
+	input wire [31:0] a;
+	input wire [31:0] b;
+	input wire cin;
+	output wire [31:0] sum;
+	genvar _gv_i_2;
+	wire [31:0] g;
+	wire [31:0] p;
+	generate
+		for (_gv_i_2 = 0; _gv_i_2 < 32; _gv_i_2 = _gv_i_2 + 1) begin : genblk1
+			localparam i = _gv_i_2;
+			gp1 gp_inst(
+				.a(a[i]),
+				.b(b[i]),
+				.g(g[i]),
+				.p(p[i])
+			);
+		end
+	endgenerate
+	genvar _gv_j_2;
+	wire [23:0] couts4;
+	wire [7:0] g4;
+	wire [7:0] p4;
+	wire [7:0] cin4;
+	assign cin4[0] = cin;
+	generate
+		for (_gv_j_2 = 0; _gv_j_2 < 8; _gv_j_2 = _gv_j_2 + 1) begin : genblk2
+			localparam j = _gv_j_2;
+			gp4 gp4_inst(
+				.gin(g[j * 4+:4]),
+				.pin(p[j * 4+:4]),
+				.cin(cin4[j]),
+				.gout(g4[j]),
+				.pout(p4[j]),
+				.cout(couts4[j * 3+:3])
+			);
+		end
+	endgenerate
+	wire g8;
+	wire p8;
+	wire [6:0] couts8;
+	gp8 gp8_inst(
+		.gin(g4),
+		.pin(p4),
+		.cin(cin),
+		.gout(g8),
+		.pout(p8),
+		.cout(couts8)
+	);
+	genvar _gv_n_1;
+	generate
+		for (_gv_n_1 = 0; _gv_n_1 < 7; _gv_n_1 = _gv_n_1 + 1) begin : genblk3
+			localparam n = _gv_n_1;
+			assign cin4[n + 1] = couts8[n];
+		end
+	endgenerate
+	wire [31:0] couts;
+	assign couts[0] = cin;
+	genvar _gv_k_2;
+	generate
+		for (_gv_k_2 = 0; _gv_k_2 < 8; _gv_k_2 = _gv_k_2 + 1) begin : genblk4
+			localparam k = _gv_k_2;
+			genvar _gv_l_1;
+			for (_gv_l_1 = 0; _gv_l_1 < 3; _gv_l_1 = _gv_l_1 + 1) begin : genblk1
+				localparam l = _gv_l_1;
+				assign couts[((k * 4) + l) + 1] = couts4[(k * 3) + l];
+			end
+		end
+	endgenerate
+	genvar _gv_m_1;
+	generate
+		for (_gv_m_1 = 0; _gv_m_1 < 7; _gv_m_1 = _gv_m_1 + 1) begin : genblk5
+			localparam m = _gv_m_1;
+			assign couts[(m + 1) * 4] = couts8[m];
+		end
+	endgenerate
+	assign sum = (a ^ b) ^ couts;
+endmodule
+module Disasm (
+	insn,
+	disasm
+);
+	parameter signed [7:0] PREFIX = "D";
+	input wire [31:0] insn;
+	output wire [255:0] disasm;
+endmodule
+module RegFile (
+	rd,
+	rd_data,
+	rs1,
+	rs1_data,
+	rs2,
+	rs2_data,
+	clk,
+	we,
+	rst
+);
+	input wire [4:0] rd;
+	input wire [31:0] rd_data;
+	input wire [4:0] rs1;
+	output wire [31:0] rs1_data;
+	input wire [4:0] rs2;
+	output wire [31:0] rs2_data;
+	input wire clk;
+	input wire we;
+	input wire rst;
+	localparam signed [31:0] NumRegs = 32;
+	reg [31:0] regs [0:31];
+	wire [32:1] sv2v_tmp_A2C07;
+	assign sv2v_tmp_A2C07 = 32'b00000000000000000000000000000000;
+	always @(*) regs[0] = sv2v_tmp_A2C07;
+	assign rs1_data = regs[rs1];
+	assign rs2_data = regs[rs2];
+	always @(posedge clk)
+		if (rst) begin : sv2v_autoblock_1
+			reg signed [31:0] i;
+			for (i = 1; i < NumRegs; i = i + 1)
+				regs[i] <= 32'b00000000000000000000000000000000;
+		end
+		else if (we && (rd != 0))
+			regs[rd] <= rd_data;
+endmodule
+module DatapathPipelined (
+	clk,
+	rst,
+	pc_to_imem,
+	insn_from_imem,
+	addr_to_dmem,
+	load_data_from_dmem,
+	store_data_to_dmem,
+	store_we_to_dmem,
+	halt,
+	trace_completed_pc,
+	trace_completed_insn,
+	trace_completed_cycle_status
 );
 	reg _sv2v_0;
-	input external_clk_25MHz;
-	input ftdi_txd;
-	input [6:0] btn;
-	output wire [7:0] led;
-	output wire ftdi_rxd;
-	output wire wifi_gpio0;
-	localparam MAX_INPUT_WIDTH = 64;
-	wire [7:0] rx_data;
-	wire rx_ready;
-	reg [7:0] tx_data;
-	wire tx_ready;
-	wire tx_busy;
-	reg [5:0] tx_index;
-	reg [5:0] tx_index_next;
-	rxuartlite uart_receive(
-		.i_clk(external_clk_25MHz),
-		.i_reset(1'b0),
-		.i_uart_rx(ftdi_txd),
-		.o_wr(rx_ready),
-		.o_data(rx_data)
+	input wire clk;
+	input wire rst;
+	output wire [31:0] pc_to_imem;
+	input wire [31:0] insn_from_imem;
+	output wire [31:0] addr_to_dmem;
+	input wire [31:0] load_data_from_dmem;
+	output wire [31:0] store_data_to_dmem;
+	output wire [3:0] store_we_to_dmem;
+	output wire halt;
+	output wire [31:0] trace_completed_pc;
+	output wire [31:0] trace_completed_insn;
+	output wire [31:0] trace_completed_cycle_status;
+	localparam [6:0] OpLoad = 7'b0000011;
+	localparam [6:0] OpStore = 7'b0100011;
+	localparam [6:0] OpBranch = 7'b1100011;
+	localparam [6:0] OpJalr = 7'b1100111;
+	localparam [6:0] OpMiscMem = 7'b0001111;
+	localparam [6:0] OpJal = 7'b1101111;
+	localparam [6:0] OpRegImm = 7'b0010011;
+	localparam [6:0] OpRegReg = 7'b0110011;
+	localparam [6:0] OpEnviron = 7'b1110011;
+	localparam [6:0] OpAuipc = 7'b0010111;
+	localparam [6:0] OpLui = 7'b0110111;
+	reg [31:0] cycles_current;
+	always @(posedge clk)
+		if (rst)
+			cycles_current <= 0;
+		else
+			cycles_current <= cycles_current + 1;
+	reg [31:0] f_pc_current;
+	reg [31:0] f_pc_next;
+	wire [31:0] f_insn;
+	reg [31:0] f_cycle_status;
+	always @(posedge clk)
+		if (rst) begin
+			f_pc_current <= 32'd0;
+			f_cycle_status <= 32'd1;
+		end
+		else begin
+			f_cycle_status <= 32'd1;
+			f_pc_current <= f_pc_next;
+		end
+	assign pc_to_imem = f_pc_current;
+	assign f_insn = insn_from_imem;
+	wire [255:0] f_disasm;
+	Disasm #(.PREFIX("F")) disasm_0fetch(
+		.insn(f_insn),
+		.disasm(f_disasm)
 	);
-	txuartlite uart_transmit(
-		.i_clk(external_clk_25MHz),
-		.i_reset(1'b0),
-		.i_wr(tx_ready),
-		.i_data(tx_data),
-		.o_uart_tx(ftdi_rxd),
-		.o_busy(tx_busy)
+	wire branch_taken;
+	reg [95:0] decode_state;
+	function automatic [31:0] sv2v_cast_32;
+		input reg [31:0] inp;
+		sv2v_cast_32 = inp;
+	endfunction
+	always @(posedge clk)
+		if (rst)
+			decode_state <= 96'h000000000000000000000004;
+		else
+			decode_state <= {sv2v_cast_32((branch_taken ? 0 : f_pc_current)), (branch_taken ? 32'h00000000 : f_insn), (branch_taken ? 32'd8 : f_cycle_status)};
+	wire [255:0] d_disasm;
+	Disasm #(.PREFIX("D")) disasm_1decode(
+		.insn(decode_state[63-:32]),
+		.disasm(d_disasm)
 	);
-	reg [7:0] pool [0:63];
-	reg [7:0] pool_next [0:63];
-	reg [5:0] len;
-	reg [5:0] len_next;
-	reg input_done;
-	reg input_done_next;
-	initial len = 0;
-	initial input_done = 0;
-	initial tx_index = 0;
-	initial begin : sv2v_autoblock_1
-		reg signed [31:0] i;
-		for (i = 0; i < MAX_INPUT_WIDTH; i = i + 1)
-			pool[i] = 8'h00;
+	reg we;
+	wire [4:0] rd;
+	wire [31:0] rd_data;
+	wire [4:0] rs1;
+	wire [4:0] rs2;
+	wire [31:0] rs1_data;
+	wire [31:0] rs2_data;
+	RegFile rf(
+		.clk(clk),
+		.rst(rst),
+		.we(we),
+		.rd(rd),
+		.rd_data(rd_data),
+		.rs1(rs1),
+		.rs2(rs2),
+		.rs1_data(rs1_data),
+		.rs2_data(rs2_data)
+	);
+	wire [6:0] d_opcode;
+	wire [4:0] insn_rs1;
+	wire [4:0] insn_rs2;
+	wire [4:0] insn_rd;
+	assign d_opcode = decode_state[38:32];
+	assign insn_rd = decode_state[43:39];
+	assign insn_rs1 = decode_state[51:47];
+	assign insn_rs2 = decode_state[56:52];
+	reg use_rs1;
+	reg use_rs2;
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		case (d_opcode)
+			OpRegImm, OpLoad, OpJalr: begin
+				use_rs1 = 1'b1;
+				use_rs2 = 1'b0;
+			end
+			OpRegReg, OpStore, OpBranch: begin
+				use_rs1 = 1'b1;
+				use_rs2 = 1'b1;
+			end
+			default: begin
+				use_rs1 = 1'b0;
+				use_rs2 = 1'b0;
+			end
+		endcase
+	end
+	assign rs1 = (use_rs1 ? insn_rs1 : 5'b00000);
+	assign rs2 = (use_rs2 ? insn_rs2 : 5'b00000);
+	reg [31:0] d_rs1_data;
+	reg [31:0] d_rs2_data;
+	reg [31:0] wd_rs1_data;
+	reg [31:0] wd_rs2_data;
+	reg wd_bypass_taken;
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		if (branch_taken) begin
+			d_rs1_data = 32'b00000000000000000000000000000000;
+			d_rs2_data = 32'b00000000000000000000000000000000;
+		end
+		else if (wd_bypass_taken) begin
+			d_rs1_data = wd_rs1_data;
+			d_rs2_data = wd_rs2_data;
+		end
+		else begin
+			d_rs1_data = rs1_data;
+			d_rs2_data = rs2_data;
+		end
+	end
+	reg [31:0] d_pc;
+	reg [31:0] d_insn;
+	reg [31:0] d_cycle_status;
+	reg [4:0] d_rd;
+	reg [4:0] d_rs1;
+	reg [4:0] d_rs2;
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		d_pc = decode_state[95-:32];
+		d_insn = decode_state[63-:32];
+		d_cycle_status = decode_state[31-:32];
+		d_rd = insn_rd;
+		d_rs1 = insn_rs1;
+		d_rs2 = insn_rs2;
+		if (branch_taken) begin
+			d_pc = 32'b00000000000000000000000000000000;
+			d_insn = 32'h00000000;
+			d_cycle_status = 32'd8;
+			d_rd = 5'b00000;
+			d_rs1 = 5'b00000;
+			d_rs2 = 5'b00000;
+		end
+	end
+	reg [174:0] execute_state;
+	always @(posedge clk)
+		if (rst)
+			execute_state <= 175'h00000000000000000000000200000000000000000000;
+		else
+			execute_state <= {d_pc, d_insn, d_cycle_status, d_rd, d_rs1, d_rs2, d_rs1_data, d_rs2_data};
+	wire [6:0] insn_funct7;
+	wire [2:0] insn_funct3;
+	wire [6:0] insn_opcode;
+	assign insn_opcode = execute_state[117:111];
+	assign insn_funct3 = execute_state[125:123];
+	assign insn_funct7 = execute_state[142:136];
+	wire [11:0] imm_i;
+	assign imm_i = execute_state[142:131];
+	wire [4:0] imm_shamt = execute_state[135:131];
+	wire [11:0] imm_s;
+	assign imm_s[11:5] = insn_funct7;
+	assign imm_s[4:0] = execute_state[78-:5];
+	wire [12:0] imm_b;
+	assign {imm_b[12], imm_b[10:5]} = insn_funct7;
+	assign {imm_b[4:1], imm_b[11]} = execute_state[78-:5];
+	assign imm_b[0] = 1'b0;
+	wire [20:0] imm_j;
+	assign {imm_j[20], imm_j[10:1], imm_j[11], imm_j[19:12], imm_j[0]} = {execute_state[142:123], 1'b0};
+	wire [19:0] imm_u;
+	assign imm_u = execute_state[142:123];
+	wire [31:0] imm_i_sext = {{20 {imm_i[11]}}, imm_i[11:0]};
+	wire [31:0] imm_s_sext = {{20 {imm_s[11]}}, imm_s[11:0]};
+	wire [31:0] imm_b_sext = {{19 {imm_b[12]}}, imm_b[12:0]};
+	wire [31:0] imm_j_sext = {{11 {imm_j[20]}}, imm_j[20:0]};
+	wire insn_lui = insn_opcode == OpLui;
+	wire insn_auipc = insn_opcode == OpAuipc;
+	wire insn_jal = insn_opcode == OpJal;
+	wire insn_jalr = insn_opcode == OpJalr;
+	wire insn_beq = (insn_opcode == OpBranch) && (execute_state[125:123] == 3'b000);
+	wire insn_bne = (insn_opcode == OpBranch) && (execute_state[125:123] == 3'b001);
+	wire insn_blt = (insn_opcode == OpBranch) && (execute_state[125:123] == 3'b100);
+	wire insn_bge = (insn_opcode == OpBranch) && (execute_state[125:123] == 3'b101);
+	wire insn_bltu = (insn_opcode == OpBranch) && (execute_state[125:123] == 3'b110);
+	wire insn_bgeu = (insn_opcode == OpBranch) && (execute_state[125:123] == 3'b111);
+	wire insn_lb = (insn_opcode == OpLoad) && (execute_state[125:123] == 3'b000);
+	wire insn_lh = (insn_opcode == OpLoad) && (execute_state[125:123] == 3'b001);
+	wire insn_lw = (insn_opcode == OpLoad) && (execute_state[125:123] == 3'b010);
+	wire insn_lbu = (insn_opcode == OpLoad) && (execute_state[125:123] == 3'b100);
+	wire insn_lhu = (insn_opcode == OpLoad) && (execute_state[125:123] == 3'b101);
+	wire insn_sb = (insn_opcode == OpStore) && (execute_state[125:123] == 3'b000);
+	wire insn_sh = (insn_opcode == OpStore) && (execute_state[125:123] == 3'b001);
+	wire insn_sw = (insn_opcode == OpStore) && (execute_state[125:123] == 3'b010);
+	wire insn_addi = (insn_opcode == OpRegImm) && (execute_state[125:123] == 3'b000);
+	wire insn_slti = (insn_opcode == OpRegImm) && (execute_state[125:123] == 3'b010);
+	wire insn_sltiu = (insn_opcode == OpRegImm) && (execute_state[125:123] == 3'b011);
+	wire insn_xori = (insn_opcode == OpRegImm) && (execute_state[125:123] == 3'b100);
+	wire insn_ori = (insn_opcode == OpRegImm) && (execute_state[125:123] == 3'b110);
+	wire insn_andi = (insn_opcode == OpRegImm) && (execute_state[125:123] == 3'b111);
+	wire insn_slli = ((insn_opcode == OpRegImm) && (execute_state[125:123] == 3'b001)) && (execute_state[142:136] == 7'd0);
+	wire insn_srli = ((insn_opcode == OpRegImm) && (execute_state[125:123] == 3'b101)) && (execute_state[142:136] == 7'd0);
+	wire insn_srai = ((insn_opcode == OpRegImm) && (execute_state[125:123] == 3'b101)) && (execute_state[142:136] == 7'b0100000);
+	wire insn_add = ((insn_opcode == OpRegReg) && (execute_state[125:123] == 3'b000)) && (execute_state[142:136] == 7'd0);
+	wire insn_sub = ((insn_opcode == OpRegReg) && (execute_state[125:123] == 3'b000)) && (execute_state[142:136] == 7'b0100000);
+	wire insn_sll = ((insn_opcode == OpRegReg) && (execute_state[125:123] == 3'b001)) && (execute_state[142:136] == 7'd0);
+	wire insn_slt = ((insn_opcode == OpRegReg) && (execute_state[125:123] == 3'b010)) && (execute_state[142:136] == 7'd0);
+	wire insn_sltu = ((insn_opcode == OpRegReg) && (execute_state[125:123] == 3'b011)) && (execute_state[142:136] == 7'd0);
+	wire insn_xor = ((insn_opcode == OpRegReg) && (execute_state[125:123] == 3'b100)) && (execute_state[142:136] == 7'd0);
+	wire insn_srl = ((insn_opcode == OpRegReg) && (execute_state[125:123] == 3'b101)) && (execute_state[142:136] == 7'd0);
+	wire insn_sra = ((insn_opcode == OpRegReg) && (execute_state[125:123] == 3'b101)) && (execute_state[142:136] == 7'b0100000);
+	wire insn_or = ((insn_opcode == OpRegReg) && (execute_state[125:123] == 3'b110)) && (execute_state[142:136] == 7'd0);
+	wire insn_and = ((insn_opcode == OpRegReg) && (execute_state[125:123] == 3'b111)) && (execute_state[142:136] == 7'd0);
+	wire insn_mul = ((insn_opcode == OpRegReg) && (execute_state[142:136] == 7'd1)) && (execute_state[125:123] == 3'b000);
+	wire insn_mulh = ((insn_opcode == OpRegReg) && (execute_state[142:136] == 7'd1)) && (execute_state[125:123] == 3'b001);
+	wire insn_mulhsu = ((insn_opcode == OpRegReg) && (execute_state[142:136] == 7'd1)) && (execute_state[125:123] == 3'b010);
+	wire insn_mulhu = ((insn_opcode == OpRegReg) && (execute_state[142:136] == 7'd1)) && (execute_state[125:123] == 3'b011);
+	wire insn_div = ((insn_opcode == OpRegReg) && (execute_state[142:136] == 7'd1)) && (execute_state[125:123] == 3'b100);
+	wire insn_divu = ((insn_opcode == OpRegReg) && (execute_state[142:136] == 7'd1)) && (execute_state[125:123] == 3'b101);
+	wire insn_rem = ((insn_opcode == OpRegReg) && (execute_state[142:136] == 7'd1)) && (execute_state[125:123] == 3'b110);
+	wire insn_remu = ((insn_opcode == OpRegReg) && (execute_state[142:136] == 7'd1)) && (execute_state[125:123] == 3'b111);
+	wire insn_uses_divider = ((insn_div || insn_divu) || insn_rem) || insn_remu;
+	wire insn_ecall = (insn_opcode == OpEnviron) && (execute_state[142:118] == 25'd0);
+	wire insn_fence = insn_opcode == OpMiscMem;
+	reg [31:0] alu_a;
+	reg [31:0] alu_b;
+	wire [31:0] alu_sum;
+	reg alu_cin;
+	CarryLookaheadAdder alu_cla(
+		.a(alu_a),
+		.b(alu_b),
+		.cin(alu_cin),
+		.sum(alu_sum)
+	);
+	wire [31:0] mx_alu_a;
+	wire [31:0] mx_alu_b;
+	wire [31:0] wx_alu_a;
+	wire [31:0] wx_alu_b;
+	wire mx_bypass_taken;
+	wire wx_bypass_taken;
+	reg [31:0] bypassed_rs1_data;
+	reg [31:0] bypassed_rs2_data;
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		case (insn_opcode)
+			OpJal: alu_a = execute_state[174-:32];
+			OpLui: alu_a = 32'b00000000000000000000000000000000;
+			default: alu_a = bypassed_rs1_data;
+		endcase
+		case (insn_opcode)
+			OpRegImm, OpLoad, OpJalr: alu_b = imm_i_sext;
+			OpStore: alu_b = imm_s_sext;
+			OpLui: alu_b = imm_u << 12;
+			OpJal: alu_b = 32'd4;
+			OpRegReg:
+				if (insn_sub)
+					alu_b = ~bypassed_rs2_data;
+				else
+					alu_b = bypassed_rs2_data;
+			default: alu_b = bypassed_rs2_data;
+		endcase
+	end
+	wire is_m_extension;
+	assign is_m_extension = (insn_opcode == 7'b0110011) && (insn_funct7 == 7'b0000001);
+	wire [63:0] mul_res_signed;
+	wire [63:0] mul_res_unsigned;
+	wire [63:0] mul_res_su;
+	assign mul_res_signed = $signed(rs1_data) * $signed(rs2_data);
+	assign mul_res_unsigned = rs1_data * rs2_data;
+	assign mul_res_su = $signed(rs1_data) * $signed({1'b0, rs2_data});
+	reg illegal_insn;
+	reg [31:0] x_output_data;
+	reg x_branch_taken;
+	reg x_halt;
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		illegal_insn = 1'b0;
+		alu_cin = 1'b0;
+		x_halt = 1'b0;
+		f_pc_next = f_pc_current + 32'd4;
+		x_output_data = 32'b00000000000000000000000000000000;
+		x_branch_taken = 1'b0;
+		case (insn_opcode)
+			OpLui: x_output_data = imm_u << 12;
+			OpRegImm:
+				if (insn_addi)
+					x_output_data = alu_sum;
+				else if (insn_slti)
+					x_output_data = ($signed(alu_a) < $signed(imm_i_sext) ? 32'd1 : 32'd0);
+				else if (insn_sltiu)
+					x_output_data = (alu_a < imm_i_sext ? 32'd1 : 32'd0);
+				else if (insn_xori)
+					x_output_data = alu_a ^ imm_i_sext;
+				else if (insn_ori)
+					x_output_data = alu_a | imm_i_sext;
+				else if (insn_andi)
+					x_output_data = alu_a & imm_i_sext;
+				else if (insn_slli)
+					x_output_data = alu_a << imm_shamt;
+				else if (insn_srli)
+					x_output_data = alu_a >> imm_shamt;
+				else if (insn_srai)
+					x_output_data = $signed(alu_a) >>> imm_shamt;
+				else
+					illegal_insn = 1'b1;
+			OpRegReg:
+				if (insn_mul)
+					x_output_data = mul_res_signed[31:0];
+				else if (insn_mulh)
+					x_output_data = mul_res_signed[63:32];
+				else if (insn_mulhsu)
+					x_output_data = mul_res_su[63:32];
+				else if (insn_mulhu)
+					x_output_data = mul_res_unsigned[63:32];
+				else if (insn_add)
+					x_output_data = alu_sum;
+				else if (insn_sub) begin
+					alu_cin = 1'b1;
+					x_output_data = alu_sum;
+				end
+				else if (insn_sll)
+					x_output_data = alu_a << alu_b[4:0];
+				else if (insn_slt)
+					x_output_data = ($signed(alu_a) < $signed(alu_b) ? 32'd1 : 32'd0);
+				else if (insn_sltu)
+					x_output_data = (alu_a < alu_b ? 32'd1 : 32'd0);
+				else if (insn_xor)
+					x_output_data = alu_a ^ alu_b;
+				else if (insn_srl)
+					x_output_data = alu_a >> alu_b[4:0];
+				else if (insn_sra)
+					x_output_data = $signed(alu_a) >>> alu_b[4:0];
+				else if (insn_or)
+					x_output_data = alu_a | alu_b;
+				else if (insn_and)
+					x_output_data = alu_a & alu_b;
+				else
+					illegal_insn = 1'b1;
+			OpJal: begin
+				x_branch_taken = 1'b1;
+				x_output_data = execute_state[174-:32] + 32'd4;
+				f_pc_next = execute_state[174-:32] + $signed(imm_j_sext);
+			end
+			OpJalr: begin
+				x_branch_taken = 1'b1;
+				x_output_data = execute_state[174-:32] + 32'd4;
+				f_pc_next = (alu_a + $signed(imm_i_sext)) & ~32'b00000000000000000000000000000001;
+			end
+			OpBranch:
+				if (insn_beq) begin
+					if (alu_a == alu_b) begin
+						x_branch_taken = 1'b1;
+						f_pc_next = execute_state[174-:32] + imm_b_sext;
+					end
+				end
+				else if (insn_bne) begin
+					if (alu_a != alu_b) begin
+						x_branch_taken = 1'b1;
+						f_pc_next = execute_state[174-:32] + imm_b_sext;
+					end
+				end
+				else if (insn_blt) begin
+					if ($signed(alu_a) < $signed(alu_b)) begin
+						x_branch_taken = 1'b1;
+						f_pc_next = execute_state[174-:32] + imm_b_sext;
+					end
+				end
+				else if (insn_bge) begin
+					if ($signed(alu_a) >= $signed(alu_b)) begin
+						x_branch_taken = 1'b1;
+						f_pc_next = execute_state[174-:32] + imm_b_sext;
+					end
+				end
+				else if (insn_bltu) begin
+					if (alu_a < alu_b) begin
+						x_branch_taken = 1'b1;
+						f_pc_next = execute_state[174-:32] + imm_b_sext;
+					end
+				end
+				else if (insn_bgeu) begin
+					if (alu_a >= alu_b) begin
+						x_branch_taken = 1'b1;
+						f_pc_next = execute_state[174-:32] + imm_b_sext;
+					end
+				end
+				else
+					illegal_insn = 1'b1;
+			OpEnviron:
+				if (insn_ecall)
+					x_halt = 1'b1;
+				else
+					illegal_insn = 1'b1;
+			default: illegal_insn = 1'b1;
+		endcase
+	end
+	assign branch_taken = x_branch_taken;
+	reg [165:0] memory_state;
+	function automatic [4:0] sv2v_cast_5;
+		input reg [4:0] inp;
+		sv2v_cast_5 = inp;
+	endfunction
+	always @(posedge clk)
+		if (rst)
+			memory_state <= 166'h000000000000000000000000800000000000000000;
+		else
+			memory_state <= {sv2v_cast_32(execute_state[174-:32]), sv2v_cast_32(execute_state[142-:32]), x_halt, sv2v_cast_32(execute_state[110-:32]), sv2v_cast_5(execute_state[78-:5]), x_output_data, sv2v_cast_32(execute_state[31-:32])};
+	assign addr_to_dmem = 32'b00000000000000000000000000000000;
+	assign store_we_to_dmem = 4'b0000;
+	assign store_data_to_dmem = 32'b00000000000000000000000000000000;
+	reg [31:0] m_load_data;
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		m_load_data = x_output_data;
+	end
+	reg [165:0] writeback_state;
+	always @(posedge clk)
+		if (rst)
+			writeback_state <= 166'h000000000000000000000000800000000000000000;
+		else
+			writeback_state <= {sv2v_cast_32(memory_state[165-:32]), sv2v_cast_32(memory_state[133-:32]), memory_state[101], sv2v_cast_32(memory_state[100-:32]), sv2v_cast_5(memory_state[68-:5]), sv2v_cast_32(memory_state[63-:32]), m_load_data};
+	reg [31:0] w_rd_data;
+	wire [6:0] w_insn_opcode = writeback_state[108:102];
+	assign rd = writeback_state[68-:5];
+	assign halt = writeback_state[101];
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		we = 1'b0;
+		w_rd_data = writeback_state[63-:32];
+		if (writeback_state[100-:32] == 32'd1) begin
+			we = 1'b1;
+			case (w_insn_opcode)
+				OpLoad: w_rd_data = writeback_state[31-:32];
+				OpStore, OpBranch, OpEnviron: we = 1'b0;
+				default:
+					;
+			endcase
+		end
+	end
+	wire can_mx_bypass = (((memory_state[68-:5] != 0) && (memory_state[108:102] != OpLoad)) && (memory_state[108:102] != OpStore)) && (memory_state[108:102] != OpBranch);
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		if (can_mx_bypass && (memory_state[68-:5] == execute_state[73-:5]))
+			bypassed_rs1_data = memory_state[63-:32];
+		else if ((writeback_state[68-:5] != 0) && (writeback_state[68-:5] == execute_state[73-:5]))
+			bypassed_rs1_data = w_rd_data;
+		else
+			bypassed_rs1_data = execute_state[63-:32];
+		if (can_mx_bypass && (memory_state[68-:5] == execute_state[68-:5]))
+			bypassed_rs2_data = memory_state[63-:32];
+		else if ((writeback_state[68-:5] != 0) && (writeback_state[68-:5] == execute_state[68-:5]))
+			bypassed_rs2_data = w_rd_data;
+		else
+			bypassed_rs2_data = execute_state[31-:32];
 	end
 	always @(*) begin
 		if (_sv2v_0)
 			;
-		len_next = len;
-		input_done_next = input_done;
-		tx_index_next = tx_index;
-		tx_data = 8'h00;
-		begin : sv2v_autoblock_2
-			reg signed [31:0] i;
-			for (i = 0; i < MAX_INPUT_WIDTH; i = i + 1)
-				pool_next[i] = pool[i];
-		end
-		if (rx_ready && (input_done == 0)) begin
-			pool_next[len] = rx_data;
-			if (rx_data == 8'h0d) begin
-				len_next = len;
-				input_done_next = 1'b1;
+		wd_bypass_taken = 1'b0;
+		wd_rs1_data = rs1_data;
+		wd_rs2_data = rs2_data;
+		if ((writeback_state[68-:5] != 0) && we) begin
+			if (writeback_state[68-:5] == d_rs1) begin
+				wd_bypass_taken = 1'b1;
+				wd_rs1_data = w_rd_data;
 			end
-			else
-				len_next = len + 1;
-		end
-		else if (tx_ready) begin
-			tx_index_next = tx_index + 1;
-			tx_data = pool[tx_index];
-			if (tx_index == len) begin
-				tx_index_next = 0;
-				input_done_next = 0;
-				len_next = 0;
-				begin : sv2v_autoblock_3
-					reg signed [31:0] i;
-					for (i = 0; i < MAX_INPUT_WIDTH; i = i + 1)
-						pool_next[i] = 8'h00;
-				end
+			if (writeback_state[68-:5] == d_rs2) begin
+				wd_bypass_taken = 1'b1;
+				wd_rs2_data = w_rd_data;
 			end
 		end
 	end
-	always @(posedge external_clk_25MHz) begin
-		len <= len_next;
-		input_done <= input_done_next;
-		tx_index <= tx_index_next;
-		begin : sv2v_autoblock_4
-			reg signed [31:0] i;
-			for (i = 0; i < MAX_INPUT_WIDTH; i = i + 1)
-				pool[i] <= pool_next[i];
-		end
-	end
-	assign led = {1'b0, len[2:0], 3'b000, input_done};
-	assign tx_ready = input_done && !tx_busy;
-	assign wifi_gpio0 = 1'b1;
+	assign rd_data = w_rd_data;
+	assign trace_completed_pc = writeback_state[165-:32];
+	assign trace_completed_insn = writeback_state[133-:32];
+	assign trace_completed_cycle_status = writeback_state[100-:32];
 	initial _sv2v_0 = 0;
+endmodule
+module MemorySingleCycle (
+	rst,
+	clk,
+	pc_to_imem,
+	insn_from_imem,
+	addr_to_dmem,
+	load_data_from_dmem,
+	store_data_to_dmem,
+	store_we_to_dmem
+);
+	reg _sv2v_0;
+	parameter signed [31:0] NUM_WORDS = 512;
+	input wire rst;
+	input wire clk;
+	input wire [31:0] pc_to_imem;
+	output reg [31:0] insn_from_imem;
+	input wire [31:0] addr_to_dmem;
+	output reg [31:0] load_data_from_dmem;
+	input wire [31:0] store_data_to_dmem;
+	input wire [3:0] store_we_to_dmem;
+	reg [31:0] mem_array [0:NUM_WORDS - 1];
+	initial $readmemh("mem_initial_contents.hex", mem_array);
+	always @(*)
+		if (_sv2v_0)
+			;
+	localparam signed [31:0] AddrMsb = $clog2(NUM_WORDS) + 1;
+	localparam signed [31:0] AddrLsb = 2;
+	always @(negedge clk)
+		if (rst)
+			;
+		else
+			insn_from_imem <= mem_array[{pc_to_imem[AddrMsb:AddrLsb]}];
+	always @(negedge clk)
+		if (rst)
+			;
+		else begin
+			if (store_we_to_dmem[0])
+				mem_array[addr_to_dmem[AddrMsb:AddrLsb]][7:0] <= store_data_to_dmem[7:0];
+			if (store_we_to_dmem[1])
+				mem_array[addr_to_dmem[AddrMsb:AddrLsb]][15:8] <= store_data_to_dmem[15:8];
+			if (store_we_to_dmem[2])
+				mem_array[addr_to_dmem[AddrMsb:AddrLsb]][23:16] <= store_data_to_dmem[23:16];
+			if (store_we_to_dmem[3])
+				mem_array[addr_to_dmem[AddrMsb:AddrLsb]][31:24] <= store_data_to_dmem[31:24];
+			load_data_from_dmem <= mem_array[{addr_to_dmem[AddrMsb:AddrLsb]}];
+		end
+	initial _sv2v_0 = 0;
+endmodule
+module SystemResourceCheck (
+	external_clk_25MHz,
+	btn,
+	led
+);
+	input wire external_clk_25MHz;
+	input wire [6:0] btn;
+	output wire [7:0] led;
+	wire clk_proc;
+	wire clk_locked;
+	MyClockGen clock_gen(
+		.input_clk_25MHz(external_clk_25MHz),
+		.clk_proc(clk_proc),
+		.locked(clk_locked)
+	);
+	wire [31:0] pc_to_imem;
+	wire [31:0] insn_from_imem;
+	wire [31:0] mem_data_addr;
+	wire [31:0] mem_data_loaded_value;
+	wire [31:0] mem_data_to_write;
+	wire [3:0] mem_data_we;
+	wire [31:0] trace_writeback_pc;
+	wire [31:0] trace_writeback_insn;
+	wire [31:0] trace_writeback_cycle_status;
+	MemorySingleCycle #(.NUM_WORDS(128)) memory(
+		.rst(!clk_locked),
+		.clk(clk_proc),
+		.pc_to_imem(pc_to_imem),
+		.insn_from_imem(insn_from_imem),
+		.addr_to_dmem(mem_data_addr),
+		.load_data_from_dmem(mem_data_loaded_value),
+		.store_data_to_dmem(mem_data_to_write),
+		.store_we_to_dmem(mem_data_we)
+	);
+	DatapathPipelined datapath(
+		.clk(clk_proc),
+		.rst(!clk_locked),
+		.pc_to_imem(pc_to_imem),
+		.insn_from_imem(insn_from_imem),
+		.addr_to_dmem(mem_data_addr),
+		.store_data_to_dmem(mem_data_to_write),
+		.store_we_to_dmem(mem_data_we),
+		.load_data_from_dmem(mem_data_loaded_value),
+		.halt(led[0]),
+		.trace_completed_pc(trace_writeback_pc),
+		.trace_completed_insn(trace_writeback_insn),
+		.trace_completed_cycle_status(trace_writeback_cycle_status)
+	);
 endmodule
