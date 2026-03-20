@@ -422,7 +422,7 @@ module DatapathPipelined (
     halt = 1'b0;
 
     // increment pc by 4 default
-    f_pc_next = execute_state.pc + 32'd4;
+    f_pc_next = f_pc_current + 32'd4;
     x_output_data = 32'b0;
     
     case (insn_opcode)
@@ -598,6 +598,10 @@ module DatapathPipelined (
   end
 
   // TODO implement memory stage logic
+
+  assign addr_to_dmem = 32'b0;
+  assign store_we_to_dmem = 4'b0;
+  assign store_data_to_dmem = 32'b0;
 
   logic [`REG_SIZE] m_load_data;
 
