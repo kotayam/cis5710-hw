@@ -261,8 +261,8 @@ module DatapathPipelined (
     .rs2_data(rs2_data));
   
   // components of the instruction
-  wire [4:0] insn_rs2;
   wire [4:0] insn_rs1;
+  wire [4:0] insn_rs2;
   wire [4:0] insn_rd;
 
   // split R-type instruction - see section 2.2 of RiscV spec
@@ -270,8 +270,19 @@ module DatapathPipelined (
   assign insn_rs1 = decode_state.insn[19:15];
   assign insn_rs2 = decode_state.insn[24:20];
 
-  // TODO: your code here, though you will also need to modify some of the code above
-  // TODO: the testbench requires that your register file instance is named `rf`
+  logic [`REG_SIZE] d_rs1_data, d_rs2_data;
+  logic [`REG_SIZE] wd_rs1_data, wd_rs2_data;
+  logic wd_bypass_taken;
+
+  always_comb begin
+    if (wd_bypass_taken) begin
+      d_rs1_data = wd_rs1_data;
+      d_rs2_data = wd_rs2_data;
+    end else begin
+      d_rs1_data = rs1_data;
+      d_rs2_data = rs2_data;
+    end
+  end
 
   /*****************/
   /* EXECUTE STAGE */
@@ -310,8 +321,8 @@ module DatapathPipelined (
         rd: insn_rd,
         rs1: insn_rs1,
         rs2: insn_rs2,
-        rs1_data: rs1_data,
-        rs2_data: rs2_data
+        rs1_data: d_rs1_data,
+        rs2_data: d_rs2_data
       };
     end
   end
@@ -746,6 +757,25 @@ module DatapathPipelined (
         default: begin
         end
       endcase
+    end
+  end
+
+  // WD bypass logic
+  always_comb begin
+    wd_bypass_taken = 1'b0;
+    wd_rs1_data = rs1_data;
+    wd_rs2_data = rs2_data;
+    if (writeback_state.rd != 0) begin
+      if (writeback_state.rd == insn_rs1) begin
+        // we use bypass
+        wd_bypass_taken = 1'b1;
+        wd_rs1_data = w_rd_data;
+      end
+      if (writeback_state.rd == insn_rs2) begin
+        // we use bypass
+        wd_bypass_taken = 1'b1;
+        wd_rs2_data = w_rd_data;
+      end
     end
   end
 
