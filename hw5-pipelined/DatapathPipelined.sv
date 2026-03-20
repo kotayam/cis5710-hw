@@ -258,18 +258,39 @@ module DatapathPipelined (
     .rs2_data(rs2_data));
   
   // components of the instruction
+  wire [`OPCODE_SIZE] d_opcode;
   wire [4:0] insn_rs1;
   wire [4:0] insn_rs2;
   wire [4:0] insn_rd;
 
   // split R-type instruction - see section 2.2 of RiscV spec
+  assign d_opcode = decode_state.insn[6:0];
   assign insn_rd = decode_state.insn[11:7];
   assign insn_rs1 = decode_state.insn[19:15];
   assign insn_rs2 = decode_state.insn[24:20];
 
-  // get rs1 and rs2 data
-  assign rs1 = insn_rs1;
-  assign rs2 = insn_rs2;
+  // check if need rs1 or rs2 based on opcode
+  logic use_rs1, use_rs2;
+  always_comb begin
+    case (d_opcode) 
+      OpRegImm, OpLoad, OpJalr : begin
+        use_rs1 = 1'b1;
+        use_rs2 = 1'b0;
+      end
+      OpRegReg, OpStore, OpBranch: begin
+        use_rs1 = 1'b1;
+        use_rs2 = 1'b1;
+      end
+      default: begin
+        use_rs1 = 1'b0;
+        use_rs2 = 1'b0;
+      end 
+    endcase
+  end
+
+  // get rs1 and rs2 data if needed
+  assign rs1 = use_rs1? insn_rs1 : 5'b0;
+  assign rs2 = use_rs2? insn_rs2 : 5'b0;
 
   logic [`REG_SIZE] d_rs1_data, d_rs2_data;
   logic [`REG_SIZE] wd_rs1_data, wd_rs2_data;
@@ -681,7 +702,6 @@ module DatapathPipelined (
   assign addr_to_dmem = 32'b0;
   assign store_we_to_dmem = 4'b0;
   assign store_data_to_dmem = 32'b0;
-
   logic [`REG_SIZE] m_load_data;
 
   always_comb begin
@@ -744,7 +764,7 @@ module DatapathPipelined (
 
   // handle bypass logics
   always_comb begin
-    if (memory_state.rd != 0 && memory_state.rd == execute_state.rs1) begin
+    if (memory_state.rd != 0 && w_insn_opcode == OpLoad && memory_state.rd == execute_state.rs1) begin
       // mx bypass for rs1
       bypassed_rs1_data = memory_state.output_data;
     end else if (writeback_state.rd != 0 && writeback_state.rd == execute_state.rs1) begin
@@ -755,7 +775,7 @@ module DatapathPipelined (
       bypassed_rs1_data = execute_state.rs1_data;
     end
 
-    if (memory_state.rd != 0 && memory_state.rd == execute_state.rs2) begin
+    if (memory_state.rd != 0 && w_insn_opcode == OpLoad && memory_state.rd == execute_state.rs2) begin
       // mx bypass for rs2
       bypassed_rs2_data = memory_state.output_data;
     end else if (writeback_state.rd != 0 && writeback_state.rd == execute_state.rs2) begin
@@ -773,12 +793,12 @@ module DatapathPipelined (
     wd_rs1_data = rs1_data;
     wd_rs2_data = rs2_data;
     if (writeback_state.rd != 0) begin
-      if (writeback_state.rd == insn_rs1) begin
+      if (writeback_state.rd == d_rs1) begin
         // we use bypass
         wd_bypass_taken = 1'b1;
         wd_rs1_data = w_rd_data;
       end
-      if (writeback_state.rd == insn_rs2) begin
+      if (writeback_state.rd == d_rs2) begin
         // we use bypass
         wd_bypass_taken = 1'b1;
         wd_rs2_data = w_rd_data;
