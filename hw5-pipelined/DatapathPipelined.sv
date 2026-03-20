@@ -763,8 +763,9 @@ module DatapathPipelined (
   end
 
   // handle bypass logics
+  wire can_mx_bypass = memory_state.rd != 0 && memory_state.insn[6:0] != OpLoad && memory_state.insn[6:0] != OpStore && memory_state.insn[6:0] != OpBranch;
   always_comb begin
-    if (memory_state.rd != 0 && memory_state.insn[6:0] != OpLoad && memory_state.rd == execute_state.rs1) begin
+    if (can_mx_bypass && memory_state.rd == execute_state.rs1) begin
       // mx bypass for rs1
       bypassed_rs1_data = memory_state.output_data;
     end else if (writeback_state.rd != 0 && writeback_state.rd == execute_state.rs1) begin
@@ -775,7 +776,7 @@ module DatapathPipelined (
       bypassed_rs1_data = execute_state.rs1_data;
     end
 
-    if (memory_state.rd != 0 && memory_state.insn[6:0] != OpLoad && memory_state.rd == execute_state.rs2) begin
+    if (can_mx_bypass && memory_state.rd == execute_state.rs2) begin
       // mx bypass for rs2
       bypassed_rs2_data = memory_state.output_data;
     end else if (writeback_state.rd != 0 && writeback_state.rd == execute_state.rs2) begin
