@@ -265,6 +265,10 @@ module DatapathPipelined (
   assign insn_rs1 = decode_state.insn[19:15];
   assign insn_rs2 = decode_state.insn[24:20];
 
+  // get rs1 and rs2 data
+  assign rs1 = insn_rs1;
+  assign rs2 = insn_rs2;
+
   logic [`REG_SIZE] d_rs1_data, d_rs2_data;
   logic [`REG_SIZE] wd_rs1_data, wd_rs2_data;
   logic wd_bypass_taken;
