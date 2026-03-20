@@ -275,14 +275,40 @@ module DatapathPipelined (
   logic [`REG_SIZE] wd_rs1_data, wd_rs2_data;
   logic wd_bypass_taken;
 
-  // flush decode if branch was taken in execute
+  // flush decode if branch was taken in execute.
+  // use WD bypass if taken.
   always_comb begin
-    if (wd_bypass_taken) begin
+    if (branch_taken) begin
+      d_rs1_data = 32'b0;
+      d_rs2_data = 32'b0;
+    end else if (wd_bypass_taken) begin
       d_rs1_data = wd_rs1_data;
       d_rs2_data = wd_rs2_data;
     end else begin
       d_rs1_data = rs1_data;
       d_rs2_data = rs2_data;
+    end
+  end
+
+  // clear states on branch taken
+  logic [`REG_SIZE] d_pc;
+  logic [`INSN_SIZE] d_insn;
+  cycle_status_e d_cycle_status;
+  logic [4:0] d_rd, d_rs1, d_rs2;
+  always_comb begin
+    d_pc = decode_state.pc;
+    d_insn = decode_state.insn;
+    d_cycle_status = decode_state.cycle_status;
+    d_rd = insn_rd;
+    d_rs1 = insn_rs1;
+    d_rs2 = insn_rs2;
+    if (branch_taken) begin
+      d_pc = 32'b0;
+      d_insn = `NOP_INSN;
+      d_cycle_status = CYCLE_TAKEN_BRANCH;
+      d_rd = 5'b0;
+      d_rs1 = 5'b0;
+      d_rs2 = 5'b0;
     end
   end
 
@@ -305,12 +331,12 @@ module DatapathPipelined (
       };
     end else begin
       execute_state <= '{
-        pc: branch_taken? 0 :decode_state.pc,
-        insn: branch_taken? `NOP_INSN : decode_state.insn,
-        cycle_status: branch_taken? CYCLE_TAKEN_BRANCH : decode_state.cycle_status,
-        rd: insn_rd,
-        rs1: insn_rs1,
-        rs2: insn_rs2,
+        pc: d_pc,
+        insn: d_insn,
+        cycle_status: d_cycle_status,
+        rd: d_rd,
+        rs1: d_rs1,
+        rs2: d_rs2,
         rs1_data: d_rs1_data,
         rs2_data: d_rs2_data
       };
