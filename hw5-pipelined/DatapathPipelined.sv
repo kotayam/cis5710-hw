@@ -433,21 +433,21 @@ module DatapathPipelined (
         if (insn_addi) begin
           x_output_data = alu_sum;
         end else if (insn_slti) begin
-          x_output_data = $signed(execute_state.rs1_data) < $signed(imm_i_sext) ? 32'd1 : 32'd0;
+          x_output_data = $signed(alu_a) < $signed(imm_i_sext) ? 32'd1 : 32'd0;
         end else if (insn_sltiu) begin
-          x_output_data = execute_state.rs1_data < imm_i_sext ? 32'd1 : 32'd0;
+          x_output_data = alu_a < imm_i_sext ? 32'd1 : 32'd0;
         end else if (insn_xori) begin
-          x_output_data = execute_state.rs1_data ^ imm_i_sext;
+          x_output_data = alu_a ^ imm_i_sext;
         end else if (insn_ori) begin
-          x_output_data = execute_state.rs1_data | imm_i_sext;
+          x_output_data = alu_a | imm_i_sext;
         end else if (insn_andi) begin
-          x_output_data = execute_state.rs1_data & imm_i_sext;
+          x_output_data = alu_a & imm_i_sext;
         end else if (insn_slli) begin
-          x_output_data = execute_state.rs1_data << imm_shamt;
+          x_output_data = alu_a << imm_shamt;
         end else if (insn_srli) begin
-          x_output_data = execute_state.rs1_data >> imm_shamt;
+          x_output_data = alu_a >> imm_shamt;
         end else if (insn_srai) begin
-          x_output_data = $signed(execute_state.rs1_data) >>> imm_shamt;
+          x_output_data = $signed(alu_a) >>> imm_shamt;
         end else begin
           illegal_insn = 1'b1;
         end
