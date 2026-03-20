@@ -435,18 +435,40 @@ module DatapathPipelined (
   logic [`REG_SIZE] mx_alu_a, mx_alu_b;
   logic [`REG_SIZE] wx_alu_a, wx_alu_b;
   logic mx_bypass_taken, wx_bypass_taken;
+  logic [`REG_SIZE] bypassed_rs1_data, bypassed_rs2_data;
 
   always_comb begin
-    if (mx_bypass_taken) begin
-      alu_a = mx_alu_a;
-      alu_b = mx_alu_b;
-    end else if (wx_bypass_taken) begin
-      alu_a = wx_alu_a;
-      alu_b = wx_alu_b;
-    end else begin
-      alu_a = execute_state.rs1_data;
-      alu_b = execute_state.rs2_data;
-    end
+    // if (mx_bypass_taken && wx_bypass_taken) begin
+    //   // is both taken, use mx since it's the latest
+    //   alu_a = mx_alu_a;
+    //   alu_b = mx_alu_b;
+    // end else if (mx_bypass_taken) begin
+    //   alu_a = mx_alu_a;
+    //   alu_b = mx_alu_b;
+    // end else if (wx_bypass_taken) begin
+    //   alu_a = wx_alu_a;
+    //   alu_b = wx_alu_b;
+    // end else begin
+    //   alu_a = execute_state.rs1_data;
+    //   alu_b = execute_state.rs2_data;
+    // end
+    alu_a = bypassed_rs1_data;
+    alu_b = bypassed_rs2_data;
+    case (insn_opcode)
+      OpRegImm, OpLoad, OpJalr : begin
+        alu_b = imm_i_sext;
+      end
+      OpStore: begin
+        alu_b = imm_s_sext;
+      end
+      OpRegReg : begin
+        if (insn_sub) begin
+          alu_b = ~bypassed_rs2_data;
+        end
+      end
+      default : begin
+      end
+    endcase
   end
 
   // M-Extension Logic
@@ -632,38 +654,40 @@ module DatapathPipelined (
   assign branch_taken = memory_state.branch_taken;
 
   // MX bypass logic
-  always_comb begin
-    mx_bypass_taken = 1'b0;
-    mx_alu_a = execute_state.rs1_data;
-    mx_alu_b = execute_state.rs2_data;
-    case (insn_opcode) 
-      OpRegImm: begin
-        mx_alu_b = imm_i_sext;
-        if (memory_state.rd == execute_state.rs1) begin
-          // we use bypass
-          mx_bypass_taken = 1'b1;
-          mx_alu_a = memory_state.output_data;
-        end
-      end
-      OpRegReg: begin
-        if (memory_state.rd == execute_state.rs1) begin
-          // we use bypass
-          mx_bypass_taken = 1'b1;
-          mx_alu_a = memory_state.output_data;
-        end
-        if (memory_state.rd == execute_state.rs2) begin
-          mx_bypass_taken = 1'b1;
-          if (insn_add) begin
-            mx_alu_b = memory_state.output_data;
-          end else if (insn_sub) begin
-            mx_alu_b = ~memory_state.output_data;
-          end
-        end      
-      end
-      default: begin
-      end
-    endcase
-  end
+  // always_comb begin
+  //   mx_bypass_taken = 1'b0;
+  //   mx_alu_a = execute_state.rs1_data;
+  //   mx_alu_b = execute_state.rs2_data;
+  //   if (memory_state.rd != 0) begin
+  //     case (insn_opcode) 
+  //       OpRegImm: begin
+  //         mx_alu_b = imm_i_sext;
+  //         if (memory_state.rd == execute_state.rs1) begin
+  //           // we use bypass
+  //           mx_bypass_taken = 1'b1;
+  //           mx_alu_a = memory_state.output_data;
+  //         end
+  //       end
+  //       OpRegReg: begin
+  //         if (memory_state.rd == execute_state.rs1) begin
+  //           // we use bypass
+  //           mx_bypass_taken = 1'b1;
+  //           mx_alu_a = memory_state.output_data;
+  //         end
+  //         if (memory_state.rd == execute_state.rs2) begin
+  //           mx_bypass_taken = 1'b1;
+  //           if (insn_add) begin
+  //             mx_alu_b = memory_state.output_data;
+  //           end else if (insn_sub) begin
+  //             mx_alu_b = ~memory_state.output_data;
+  //           end
+  //         end      
+  //       end
+  //       default: begin
+  //       end
+  //     endcase
+  //   end
+  // end
 
   // TODO implement memory stage logic
 
@@ -724,41 +748,66 @@ module DatapathPipelined (
     endcase
   end
 
-  // WX bypass logic
+  // handle bypass logics
   always_comb begin
-    wx_bypass_taken = 1'b0;
-    wx_alu_a = execute_state.rs1_data;
-    wx_alu_b = execute_state.rs2_data;
-    if (writeback_state.rd != 0) begin
-      case (insn_opcode)
-        OpRegImm: begin
-          wx_alu_b = imm_i_sext;
-          if (writeback_state.rd == execute_state.rs1) begin
-            // we use bypass
-            wx_bypass_taken = 1'b1;
-            wx_alu_a = w_rd_data;
-          end
-        end
-        OpRegReg: begin
-          if (writeback_state.rd == execute_state.rs1) begin
-            // we use bypass
-            wx_bypass_taken = 1'b1;
-            wx_alu_a = w_rd_data;
-          end
-          if (writeback_state.rd == execute_state.rs2) begin
-            wx_bypass_taken = 1'b1;
-            if (insn_add) begin
-              wx_alu_b = w_rd_data;
-            end else if (insn_sub) begin
-              wx_alu_b = ~w_rd_data;
-            end
-          end      
-        end
-        default: begin
-        end
-      endcase
+    if (memory_state.rd != 0 && memory_state.rd == execute_state.rs1) begin
+      // mx bypass for rs1
+      bypassed_rs1_data = memory_state.output_data;
+    end else if (writeback_state.rd != 0 && writeback_state.rd == execute_state.rs1) begin
+      // wx bypass for rs1
+      bypassed_rs1_data = w_rd_data;
+    end else begin
+      // no bypass for rs1
+      bypassed_rs1_data = execute_state.rs1_data;
+    end
+
+    if (memory_state.rd != 0 && memory_state.rd == execute_state.rs2) begin
+      // mx bypass for rs2
+      bypassed_rs2_data = memory_state.output_data;
+    end else if (writeback_state.rd != 0 && writeback_state.rd == execute_state.rs2) begin
+      // wx bypass for rs2
+      bypassed_rs2_data = w_rd_data;
+    end else begin
+      // no bypass for rs2
+      bypassed_rs2_data = execute_state.rs2_data;
     end
   end
+
+  // WX bypass logic
+  // always_comb begin
+  //   wx_bypass_taken = 1'b0;
+  //   wx_alu_a = execute_state.rs1_data;
+  //   wx_alu_b = execute_state.rs2_data;
+  //   if (writeback_state.rd != 0) begin
+  //     case (insn_opcode)
+  //       OpRegImm: begin
+  //         wx_alu_b = imm_i_sext;
+  //         if (writeback_state.rd == execute_state.rs1) begin
+  //           // we use bypass
+  //           wx_bypass_taken = 1'b1;
+  //           wx_alu_a = w_rd_data;
+  //         end
+  //       end
+  //       OpRegReg: begin
+  //         if (writeback_state.rd == execute_state.rs1) begin
+  //           // we use bypass
+  //           wx_bypass_taken = 1'b1;
+  //           wx_alu_a = w_rd_data;
+  //         end
+  //         if (writeback_state.rd == execute_state.rs2) begin
+  //           wx_bypass_taken = 1'b1;
+  //           if (insn_add) begin
+  //             wx_alu_b = w_rd_data;
+  //           end else if (insn_sub) begin
+  //             wx_alu_b = ~w_rd_data;
+  //           end
+  //         end      
+  //       end
+  //       default: begin
+  //       end
+  //     endcase
+  //   end
+  // end
 
   // WD bypass logic
   always_comb begin
