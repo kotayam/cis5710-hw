@@ -9,6 +9,9 @@
 // RV opcodes are 7 bits
 `define OPCODE_SIZE 6:0
 
+// NOP
+`define NOP_INSN 32'h0000013
+
 `ifndef DIVIDER_STAGES
 `define DIVIDER_STAGES 8
 `endif
@@ -105,6 +108,7 @@ typedef struct packed {
   logic [4:0] rd;
   logic [`REG_SIZE] output_data;
   logic [`REG_SIZE] rs2_data; // needed for store data
+  logic branch_taken;
 } stage_memory_t;
 
 /** state at the start of Writeback stage */
@@ -201,6 +205,9 @@ module DatapathPipelined (
   /* DECODE STAGE */
   /****************/
 
+  // check if branch was taken in execute stage to flush fetch and decode
+  wire branch_taken;
+
   // this shows how to package up state in a `struct packed`, and how to pass it between stages
   stage_decode_t decode_state;
   always_ff @(posedge clk) begin
@@ -209,6 +216,13 @@ module DatapathPipelined (
         pc: 0,
         insn: 0,
         cycle_status: CYCLE_RESET
+      };
+    end else if (branch_taken) begin
+      // if branch was taken, we need to flush the instruction in decode (replace with NOP) and also update the PC
+      decode_state <= '{
+        pc: 0,
+        insn: `NOP_INSN,
+        cycle_status: f_cycle_status
       };
     end else begin
       begin
@@ -276,19 +290,29 @@ module DatapathPipelined (
         rs1_data: 32'b0,
         rs2_data: 32'b0
       };
+    end else if (branch_taken) begin
+      // if branch was taken, we need to flush the instruction in execute (replace with NOP)
+      execute_state <= '{
+        pc: 0,
+        insn: `NOP_INSN,
+        cycle_status: f_cycle_status,
+        rd: 5'b0,
+        rs1: 5'b0,
+        rs2: 5'b0,
+        rs1_data: 32'b0,
+        rs2_data: 32'b0
+      };
     end else begin
-      begin
-        execute_state <= '{
-          pc: decode_state.pc,
-          insn: decode_state.insn,
-          cycle_status: f_cycle_status,
-          rd: insn_rd,
-          rs1: insn_rs1,
-          rs2: insn_rs2,
-          rs1_data: rs1_data,
-          rs2_data: rs2_data
-        };
-      end
+      execute_state <= '{
+        pc: decode_state.pc,
+        insn: decode_state.insn,
+        cycle_status: f_cycle_status,
+        rd: insn_rd,
+        rs1: insn_rs1,
+        rs2: insn_rs2,
+        rs1_data: rs1_data,
+        rs2_data: rs2_data
+      };
     end
   end
   
@@ -397,6 +421,23 @@ module DatapathPipelined (
     .sum(alu_sum)
   );
 
+  logic [`REG_SIZE] mx_alu_a, mx_alu_b;
+  logic [`REG_SIZE] wx_alu_a, wx_alu_b;
+  logic mx_bypass_taken, wx_bypass_taken;
+
+  always_comb begin
+    if (mx_bypass_taken) begin
+      alu_a = mx_alu_a;
+      alu_b = mx_alu_b;
+    end else if (wx_bypass_taken) begin
+      alu_a = wx_alu_a;
+      alu_b = wx_alu_b;
+    end else begin
+      alu_a = execute_state.rs1_data;
+      alu_b = execute_state.rs2_data;
+    end
+  end
+
   // M-Extension Logic
   logic is_m_extension;
   assign is_m_extension = (insn_opcode == 7'b0110011) && (insn_funct7 == 7'b0000001);
@@ -410,6 +451,7 @@ module DatapathPipelined (
   logic illegal_insn;
 
   logic [`REG_SIZE] x_output_data;
+  logic x_branch_taken;
 
   always_comb begin
     // set defaults
@@ -423,7 +465,9 @@ module DatapathPipelined (
 
     // increment pc by 4 default
     f_pc_next = f_pc_current + 32'd4;
+
     x_output_data = 32'b0;
+    x_branch_taken = 1'b0;
     
     case (insn_opcode)
       OpLui: begin
@@ -487,36 +531,44 @@ module DatapathPipelined (
         end
       end
       OpJal: begin
+          x_branch_taken = 1'b1;
           x_output_data = execute_state.pc + 32'd4;
           f_pc_next = execute_state.pc + $signed(imm_j_sext);
       end
       OpJalr: begin
+          x_branch_taken = 1'b1;
           x_output_data = execute_state.pc + 32'd4;
           f_pc_next = (execute_state.rs1_data + $signed(imm_i_sext)) & ~32'b1;
       end
       OpBranch: begin
         if (insn_beq) begin
           if (execute_state.rs1_data == execute_state.rs2_data) begin
+            x_branch_taken = 1'b1;
             f_pc_next = execute_state.pc + imm_b_sext;
           end
         end else if (insn_bne) begin
           if (execute_state.rs1_data != execute_state.rs2_data) begin
+            x_branch_taken = 1'b1;
             f_pc_next = execute_state.pc + imm_b_sext;
           end
         end else if (insn_blt) begin
           if ($signed(execute_state.rs1_data) < $signed(execute_state.rs2_data)) begin
+            x_branch_taken = 1'b1;
             f_pc_next = execute_state.pc + imm_b_sext;
           end
         end else if (insn_bge) begin
           if ($signed(execute_state.rs1_data) >= $signed(execute_state.rs2_data)) begin
+            x_branch_taken = 1'b1;
             f_pc_next = execute_state.pc + imm_b_sext;
           end
         end else if (insn_bltu) begin
           if (execute_state.rs1_data < execute_state.rs2_data) begin
+            x_branch_taken = 1'b1;
             f_pc_next = execute_state.pc + imm_b_sext;
           end
         end else if (insn_bgeu) begin
           if (execute_state.rs1_data >= execute_state.rs2_data) begin
+            x_branch_taken = 1'b1;
             f_pc_next = execute_state.pc + imm_b_sext;
           end
         end else begin
@@ -548,7 +600,8 @@ module DatapathPipelined (
         cycle_status: CYCLE_RESET,
         rd: 5'b0,
         output_data: 32'b0,
-        rs2_data: 32'b0
+        rs2_data: 32'b0,
+        branch_taken: 1'b0
       };
     end else begin
       begin
@@ -557,40 +610,44 @@ module DatapathPipelined (
         cycle_status: execute_state.cycle_status,
         rd: execute_state.rd,
         output_data: x_output_data, 
-        rs2_data: execute_state.rs2_data
+        rs2_data: execute_state.rs2_data,
+        branch_taken: x_branch_taken
         };
       end
     end
   end
 
+  // flush decode and execute if branch was taken in execute
+  assign branch_taken = memory_state.branch_taken;
+
   // MX bypass logic
   always_comb begin
-    alu_a = 32'b0;
-    alu_b = 32'b0;
-    case (insn_opcode)
+    mx_bypass_taken = 1'b0;
+    mx_alu_a = execute_state.rs1_data;
+    mx_alu_b = execute_state.rs2_data;
+    case (insn_opcode) 
       OpRegImm: begin
-        alu_b = imm_i_sext;
+        mx_alu_b = imm_i_sext;
         if (memory_state.rd == execute_state.rs1) begin
           // we use bypass
-          alu_a = memory_state.output_data;
-        end else begin
-          alu_a = execute_state.rs1_data;
+          mx_bypass_taken = 1'b1;
+          mx_alu_a = memory_state.output_data;
         end
       end
       OpRegReg: begin
         if (memory_state.rd == execute_state.rs1) begin
           // we use bypass
-          alu_a = memory_state.output_data;
-        end else begin
-          alu_a = execute_state.rs1_data;
+          mx_bypass_taken = 1'b1;
+          mx_alu_a = memory_state.output_data;
         end
         if (memory_state.rd == execute_state.rs2) begin
+          mx_bypass_taken = 1'b1;
           if (insn_add) begin
-            alu_b = memory_state.output_data;
+            mx_alu_b = memory_state.output_data;
           end else if (insn_sub) begin
-            alu_b = ~memory_state.output_data;
+            mx_alu_b = ~memory_state.output_data;
           end
-        end
+        end      
       end
       default: begin
       end
@@ -636,15 +693,17 @@ module DatapathPipelined (
     end
   end
 
+  logic [`REG_SIZE] w_rd_data;
   wire [`OPCODE_SIZE] w_insn_opcode = writeback_state.insn[6:0];
   assign rd = writeback_state.rd;
 
+  // choose appropriate data to write back
   always_comb begin
     we = 1'b1;
-    rd_data = writeback_state.output_data;
+    w_rd_data = writeback_state.output_data;
     case (w_insn_opcode)
       OpLoad: begin
-        rd_data = writeback_state.load_data;
+        w_rd_data = writeback_state.load_data;
       end
       OpStore, OpBranch, OpEnviron: begin
         we = 1'b0;
@@ -653,6 +712,44 @@ module DatapathPipelined (
       end
     endcase
   end
+
+  // WX bypass logic
+  always_comb begin
+    wx_bypass_taken = 1'b0;
+    wx_alu_a = execute_state.rs1_data;
+    wx_alu_b = execute_state.rs2_data;
+    if (writeback_state.rd != 0) begin
+      case (insn_opcode)
+        OpRegImm: begin
+          wx_alu_b = imm_i_sext;
+          if (writeback_state.rd == execute_state.rs1) begin
+            // we use bypass
+            wx_bypass_taken = 1'b1;
+            wx_alu_a = w_rd_data;
+          end
+        end
+        OpRegReg: begin
+          if (writeback_state.rd == execute_state.rs1) begin
+            // we use bypass
+            wx_bypass_taken = 1'b1;
+            wx_alu_a = w_rd_data;
+          end
+          if (writeback_state.rd == execute_state.rs2) begin
+            wx_bypass_taken = 1'b1;
+            if (insn_add) begin
+              wx_alu_b = w_rd_data;
+            end else if (insn_sub) begin
+              wx_alu_b = ~w_rd_data;
+            end
+          end      
+        end
+        default: begin
+        end
+      endcase
+    end
+  end
+
+  assign rd_data = w_rd_data;
 
   // assign outputs
   assign trace_completed_pc = execute_state.pc;
