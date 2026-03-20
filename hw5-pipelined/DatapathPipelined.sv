@@ -92,6 +92,8 @@ typedef struct packed {
   logic [`INSN_SIZE] insn;
   cycle_status_e cycle_status;
   logic [4:0] rd;
+  logic [4:0] rs1;
+  logic [4:0] rs2;
   logic [`REG_SIZE] rs1_data;
   logic [`REG_SIZE] rs2_data;
 } stage_execute_t;
@@ -269,6 +271,8 @@ module DatapathPipelined (
         insn: 0,
         cycle_status: CYCLE_RESET,
         rd: 5'b0,
+        rs1: 5'b0,
+        rs2: 5'b0,
         rs1_data: 32'b0,
         rs2_data: 32'b0
       };
@@ -279,6 +283,8 @@ module DatapathPipelined (
           insn: decode_state.insn,
           cycle_status: f_cycle_status,
           rd: insn_rd,
+          rs1: insn_rs1,
+          rs2: insn_rs2,
           rs1_data: rs1_data,
           rs2_data: rs2_data
         };
@@ -410,8 +416,6 @@ module DatapathPipelined (
     illegal_insn = 1'b0;
 
     // ALU CLA defaults
-    alu_a = 32'b0;
-    alu_b = 32'b0;
     alu_cin = 1'b0;
 
     // default halt to 0
@@ -427,8 +431,6 @@ module DatapathPipelined (
       end
       OpRegImm: begin
         if (insn_addi) begin
-          alu_a = execute_state.rs1_data;
-          alu_b = imm_i_sext;
           x_output_data = alu_sum;
         end else if (insn_slti) begin
           x_output_data = $signed(execute_state.rs1_data) < $signed(imm_i_sext) ? 32'd1 : 32'd0;
@@ -460,12 +462,8 @@ module DatapathPipelined (
         end else if (insn_mulhu) begin
             x_output_data = mul_res_unsigned[63:32];
         end else if (insn_add) begin
-          alu_a = execute_state.rs1_data;
-          alu_b = execute_state.rs2_data;
           x_output_data = alu_sum;
         end else if (insn_sub) begin
-          alu_a = execute_state.rs1_data;
-          alu_b = ~execute_state.rs2_data;
           alu_cin = 1'b1;
           x_output_data = alu_sum;
         end else if (insn_sll) begin
@@ -564,6 +562,41 @@ module DatapathPipelined (
       end
     end
   end
+
+  // MX bypass logic
+  always_comb begin
+    alu_a = 32'b0;
+    alu_b = 32'b0;
+    case (insn_opcode)
+      OpRegImm: begin
+        alu_b = imm_i_sext;
+        if (memory_state.rd == execute_state.rs1) begin
+          // we use bypass
+          alu_a = memory_state.output_data;
+        end else begin
+          alu_a = execute_state.rs1_data;
+        end
+      end
+      OpRegReg: begin
+        if (memory_state.rd == execute_state.rs1) begin
+          // we use bypass
+          alu_a = memory_state.output_data;
+        end else begin
+          alu_a = execute_state.rs1_data;
+        end
+        if (memory_state.rd == execute_state.rs2) begin
+          if (insn_add) begin
+            alu_b = memory_state.output_data;
+          end else if (insn_sub) begin
+            alu_b = ~memory_state.output_data;
+          end
+        end
+      end
+      default: begin
+      end
+    endcase
+  end
+
   // TODO implement memory stage logic
 
   logic [`REG_SIZE] m_load_data;
