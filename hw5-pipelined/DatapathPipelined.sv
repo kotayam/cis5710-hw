@@ -243,6 +243,7 @@ module DatapathPipelined (
       };
     end 
   end
+
   wire [255:0] d_disasm;
   Disasm #(
       .PREFIX("D")
@@ -376,6 +377,14 @@ module DatapathPipelined (
       };
     end
   end
+
+  wire [255:0] x_disasm;
+  Disasm #(
+      .PREFIX("X")
+  ) disasm_2execute (
+      .insn  (execute_state.insn),
+      .disasm(x_disasm)
+  );
   
   // components of the instruction
   wire [6:0] insn_funct7;
@@ -717,6 +726,14 @@ module DatapathPipelined (
     end
   end
 
+  wire [255:0] m_disasm;
+  Disasm #(
+      .PREFIX("M")
+  ) disasm_3memory (
+      .insn  (memory_state.insn),
+      .disasm(m_disasm)
+  );
+
   wire [`OPCODE_SIZE] m_insn_opcode = memory_state.insn[6:0];
 
   wire insn_lb  = m_insn_opcode == OpLoad && memory_state.insn[14:12] == 3'b000;
@@ -839,6 +856,14 @@ module DatapathPipelined (
       };
     end
   end
+
+  wire [255:0] w_disasm;
+  Disasm #(
+      .PREFIX("W")
+  ) disasm_4execute (
+      .insn  (execute_state.insn),
+      .disasm(x_disasm)
+  );
 
   logic [`REG_SIZE] w_rd_data;
   wire [`OPCODE_SIZE] w_insn_opcode = writeback_state.insn[6:0];
