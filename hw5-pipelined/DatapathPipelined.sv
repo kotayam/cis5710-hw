@@ -185,6 +185,9 @@ module DatapathPipelined (
       f_pc_current <= 32'd0;
       // NB: use CYCLE_NO_STALL since this is the value that will persist after the last reset cycle
       f_cycle_status <= CYCLE_NO_STALL;
+    end else if (stall_div) begin          
+      f_pc_current <= f_pc_current;        
+      f_cycle_status <= f_cycle_status;    
     end else begin
       f_cycle_status <= CYCLE_NO_STALL;
       f_pc_current <= f_pc_next;
@@ -220,6 +223,8 @@ module DatapathPipelined (
         insn: 0,
         cycle_status: CYCLE_RESET
       };
+    end else if (stall_div) begin
+      decode_state <= decode_state;
     end else begin
       begin
         decode_state <= '{
@@ -350,6 +355,10 @@ module DatapathPipelined (
         rs1_data: 32'b0,
         rs2_data: 32'b0
       };
+    end else if (stall_div) begin
+      execute_state <= execute_state;
+      execute_state.rs1_data <= bypassed_rs1_data;
+      execute_state.rs2_data <= bypassed_rs2_data;
     end else begin
       execute_state <= '{
         pc: d_pc,
@@ -455,6 +464,30 @@ module DatapathPipelined (
   wire insn_remu   = insn_opcode == OpRegReg && execute_state.insn[31:25] == 7'd1 && execute_state.insn[14:12] == 3'b111;
   // true if insn uses divider
   wire insn_uses_divider = insn_div || insn_divu || insn_rem || insn_remu;
+
+  // edge Case & sign logic
+  wire div_by_zero = (alu_b == 32'd0);
+  wire div_overflow = (alu_a == 32'h80000000) && (alu_b == 32'hFFFFFFFF);
+  wire want_neg_quotient = (alu_a[31] != alu_b[31]) && (alu_b != 32'd0) && (alu_a != 32'h80000000 || alu_b != 32'hFFFFFFFF);
+  wire want_neg_remainder = alu_a[31];
+
+  // signed inputs to unsigned
+  wire [31:0] dividend_unsigned = (insn_div || insn_rem) && alu_a[31] ? -alu_a : alu_a;
+  wire [31:0] divisor_unsigned = (insn_div || insn_rem) && alu_b[31] ? -alu_b : alu_b;
+
+  // Raw outputs from the divider
+  wire [31:0] div_remainder_raw;
+  wire [31:0] div_quotient_raw;
+
+  DividerUnsignedPipelined divider (
+      .clk(clk),
+      .rst(rst),
+      .stall(1'b0), // Keep divider freely running; pipeline stall handles sync
+      .i_dividend(dividend_unsigned),
+      .i_divisor(divisor_unsigned),
+      .o_remainder(div_remainder_raw),
+      .o_quotient(div_quotient_raw)
+  );
 
   wire insn_ecall = insn_opcode == OpEnviron && execute_state.insn[31:7] == 25'd0;
   wire insn_fence = insn_opcode == OpMiscMem;
@@ -603,6 +636,30 @@ module DatapathPipelined (
           x_output_data = alu_a | alu_b;
         end else if (insn_and) begin
           x_output_data = alu_a & alu_b;
+        end else if (insn_div) begin
+          if (div_by_zero) 
+            x_output_data = 32'hFFFFFFFF;
+          else if (div_overflow) 
+            x_output_data = 32'h80000000;
+          else 
+            x_output_data = want_neg_quotient ? (~div_quotient_raw + 32'd1) : div_quotient_raw; 
+        end else if (insn_divu) begin
+          if (div_by_zero) 
+            x_output_data = 32'hFFFFFFFF;
+          else 
+            x_output_data = div_quotient_raw;
+        end else if (insn_rem) begin
+          if (div_by_zero) 
+            x_output_data = alu_a; 
+          else if (div_overflow) 
+            x_output_data = 32'h0;
+          else 
+            x_output_data = want_neg_remainder ? (~div_remainder_raw + 32'd1) : div_remainder_raw;
+        end else if (insn_remu) begin
+          if (div_by_zero) 
+            x_output_data = alu_a;
+          else 
+            x_output_data = div_remainder_raw;
         end else begin
           illegal_insn = 1'b1;
         end
@@ -665,6 +722,22 @@ module DatapathPipelined (
     endcase
   end
 
+  logic [2:0] div_counter;
+  
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      div_counter <= 3'd0;
+    end else begin
+      if (insn_uses_divider) begin
+        div_counter <= div_counter + 3'd1;
+      end else begin
+        div_counter <= 3'd0;
+      end
+    end
+  end
+
+  wire stall_div = insn_uses_divider && (div_counter < 3'd7);
+
   // flush decode and execute if branch was taken in execute
   assign branch_taken = x_branch_taken;
 
@@ -680,6 +753,16 @@ module DatapathPipelined (
         insn: 0,
         halt: 0,
         cycle_status: CYCLE_RESET,
+        rd: 5'b0,
+        output_data: 32'b0,
+        rs2_data: 32'b0
+      };
+    end else if (stall_div) begin
+      memory_state <= '{
+        pc: 0,
+        insn: `NOP_INSN,
+        halt: 0,
+        cycle_status: CYCLE_NO_STALL,
         rd: 5'b0,
         output_data: 32'b0,
         rs2_data: 32'b0
