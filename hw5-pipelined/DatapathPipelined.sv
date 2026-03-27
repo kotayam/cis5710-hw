@@ -483,9 +483,6 @@ module DatapathPipelined (
     .sum(alu_sum)
   );
 
-  logic [`REG_SIZE] mx_alu_a, mx_alu_b;
-  logic [`REG_SIZE] wx_alu_a, wx_alu_b;
-  logic mx_bypass_taken, wx_bypass_taken;
   logic [`REG_SIZE] bypassed_rs1_data, bypassed_rs2_data;
 
   always_comb begin
@@ -541,6 +538,7 @@ module DatapathPipelined (
   logic illegal_insn;
 
   logic [`REG_SIZE] x_output_data;
+  logic [`REG_SIZE] x_rs2_data;
   logic x_branch_taken;
   logic x_halt;
 
@@ -559,6 +557,7 @@ module DatapathPipelined (
     f_pc_next = load_use_stall? f_pc_current : f_pc_current + 32'd4;
 
     x_output_data = 32'b0;
+    x_rs2_data = execute_state.rs2_data;
     x_branch_taken = 1'b0;
     
     case (insn_opcode)
@@ -624,6 +623,7 @@ module DatapathPipelined (
       end
       OpStore, OpLoad: begin
         x_output_data = alu_a + alu_b;
+        x_rs2_data = bypassed_rs2_data;
       end
       OpJal: begin
           x_branch_taken = 1'b1;
@@ -712,7 +712,7 @@ module DatapathPipelined (
         rd: execute_state.rd,
         rs2: execute_state.rs2,
         output_data: x_output_data, 
-        rs2_data: execute_state.rs2_data
+        rs2_data: x_rs2_data
       };
     end
   end
@@ -866,7 +866,7 @@ module DatapathPipelined (
   end
 
   // handle bypass logics
-  wire can_mx_bypass = memory_state.rd != 0 && memory_state.insn[6:0] != OpLoad && memory_state.insn[6:0] != OpStore && memory_state.insn[6:0] != OpBranch;
+  wire can_mx_bypass = memory_state.rd != 0 && m_insn_opcode != OpLoad && m_insn_opcode != OpStore && m_insn_opcode != OpBranch;
   always_comb begin
     if (can_mx_bypass && memory_state.rd == execute_state.rs1) begin
       // mx bypass for rs1
