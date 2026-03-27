@@ -573,6 +573,10 @@ module DatapathPipelined (
       OpLui: begin
         x_output_data = imm_u << 12;
       end
+      OpAuipc: begin
+        x_branch_taken = 1'b1;
+        f_pc_next = execute_state.pc + (imm_u << 12);
+      end
       OpRegImm: begin
         if (insn_addi) begin
           x_output_data = alu_sum;
