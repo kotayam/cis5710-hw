@@ -108,6 +108,7 @@ typedef struct packed {
   logic halt;
   cycle_status_e cycle_status;
   logic [4:0] rd;
+  logic [4:0] rs2;
   logic [`REG_SIZE] output_data;
   logic [`REG_SIZE] rs2_data; // needed for store data
 } stage_memory_t;
@@ -389,7 +390,7 @@ module DatapathPipelined (
   // check for load-to-use hazard
   wire is_load_insn = insn_opcode == OpLoad;
   wire dependent_d_rs1 = use_rs1 && execute_state.rd == insn_rs1; 
-  wire dependent_d_rs2 = use_rs2 && execute_state.rd == insn_rs2;
+  wire dependent_d_rs2 = use_rs2 && execute_state.rd == insn_rs2 && d_opcode != OpStore;
   always_comb begin
     load_use_stall = 1'b0;
     if (execute_state.rd != 0 && is_load_insn) begin
@@ -686,6 +687,9 @@ module DatapathPipelined (
   /* MEMORY STAGE */
   /****************/
 
+  logic wm_bypass_taken;
+  logic [`REG_SIZE] wm_rs2_data;
+
   stage_memory_t memory_state;
   always_ff @(posedge clk) begin
     if (rst) begin
@@ -695,6 +699,7 @@ module DatapathPipelined (
         halt: 0,
         cycle_status: CYCLE_RESET,
         rd: 5'b0,
+        rs2: 5'b0,
         output_data: 32'b0,
         rs2_data: 32'b0
       };
@@ -705,8 +710,9 @@ module DatapathPipelined (
         halt: x_halt,
         cycle_status: execute_state.cycle_status,
         rd: execute_state.rd,
+        rs2: execute_state.rs2,
         output_data: x_output_data, 
-        rs2_data: execute_state.rs2_data
+        rs2_data: wm_bypass_taken? wm_rs2_data : execute_state.rs2_data
       };
     end
   end
@@ -888,6 +894,19 @@ module DatapathPipelined (
         // we use bypass
         wd_bypass_taken = 1'b1;
         wd_rs2_data = w_rd_data;
+      end
+    end
+  end
+
+  // WM bypass logic
+  wire wm_dep = w_insn_opcode == OpLoad && m_insn_opcode == OpStore && writeback_state.rd == memory_state.rs2;
+  always_comb begin
+    wm_bypass_taken = 1'b0;
+    wm_rs2_data = memory_state.rs2_data;
+    if (writeback_state.rd != 0 && we) begin
+      if (wm_dep) begin
+        wm_bypass_taken = 1'b1;
+        wm_rs2_data = w_rd_data;
       end
     end
   end
