@@ -727,14 +727,13 @@ module DatapathPipelined (
   logic [7:0] byte_val_dmem;
   logic [15:0] half_val_dmem;
 
-  assign store_we_to_dmem = 4'b0;
-  assign store_data_to_dmem = 32'b0;
-
   logic [`REG_SIZE] m_load_data;
 
   always_comb begin
     m_load_data = 32'b0;
     addr_to_dmem = 32'b0;
+    store_we_to_dmem = 4'b0;
+    store_data_to_dmem = 32'b0;
     case (m_insn_opcode)
       OpLoad: begin
         full_addr_to_dmem = memory_state.output_data;
@@ -766,6 +765,28 @@ module DatapathPipelined (
         end
       end
       OpStore: begin
+        full_addr_to_dmem = memory_state.output_data;
+        // make sure 4B aligned
+        addr_to_dmem = {full_addr_to_dmem[31:2], 2'b00};
+        if (insn_sb) begin
+          case (full_addr_to_dmem[1:0])
+            2'b00: store_we_to_dmem = 4'b0001;
+            2'b01: store_we_to_dmem = 4'b0010;
+            2'b10: store_we_to_dmem = 4'b0100;
+            2'b11: store_we_to_dmem = 4'b1000;
+          endcase
+          store_data_to_dmem = {4{memory_state.rs2_data[7:0]}};
+        end else if (insn_sh) begin
+          if (full_addr_to_dmem[1]) begin
+            store_we_to_dmem = 4'b1100;
+          end else begin
+            store_we_to_dmem = 4'b0011;
+          end
+          store_data_to_dmem = {2{memory_state.rs2_data[15:0]}};
+        end else if (insn_sw) begin
+          store_we_to_dmem = 4'b1111;
+          store_data_to_dmem = memory_state.rs2_data;
+        end
       end
       default: begin
       end
