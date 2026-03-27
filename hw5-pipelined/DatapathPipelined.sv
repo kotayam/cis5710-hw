@@ -622,6 +622,9 @@ module DatapathPipelined (
           illegal_insn = 1'b1;
         end
       end
+      OpStore, OpLoad: begin
+        x_output_data = alu_a + alu_b;
+      end
       OpJal: begin
           x_branch_taken = 1'b1;
           x_output_data = execute_state.pc + 32'd4;
@@ -687,9 +690,6 @@ module DatapathPipelined (
   /* MEMORY STAGE */
   /****************/
 
-  logic wm_bypass_taken;
-  logic [`REG_SIZE] wm_rs2_data;
-
   stage_memory_t memory_state;
   always_ff @(posedge clk) begin
     if (rst) begin
@@ -712,7 +712,7 @@ module DatapathPipelined (
         rd: execute_state.rd,
         rs2: execute_state.rs2,
         output_data: x_output_data, 
-        rs2_data: wm_bypass_taken? wm_rs2_data : execute_state.rs2_data
+        rs2_data: execute_state.rs2_data
       };
     end
   end
@@ -734,12 +734,24 @@ module DatapathPipelined (
   logic [15:0] half_val_dmem;
 
   logic [`REG_SIZE] m_load_data;
+  logic [`REG_SIZE] m_rs2_data;
+
+  // WM bypass logic
+  logic wm_bypass_taken;
+  logic [`REG_SIZE] wm_rs2_data;
 
   always_comb begin
     m_load_data = 32'b0;
+
+    m_rs2_data = memory_state.rs2_data;
+    if (wm_bypass_taken) begin
+      m_rs2_data = wm_rs2_data;
+    end
+
     addr_to_dmem = 32'b0;
     store_we_to_dmem = 4'b0;
     store_data_to_dmem = 32'b0;
+
     case (m_insn_opcode)
       OpLoad: begin
         full_addr_to_dmem = memory_state.output_data;
@@ -781,17 +793,17 @@ module DatapathPipelined (
             2'b10: store_we_to_dmem = 4'b0100;
             2'b11: store_we_to_dmem = 4'b1000;
           endcase
-          store_data_to_dmem = {4{memory_state.rs2_data[7:0]}};
+          store_data_to_dmem = {4{m_rs2_data[7:0]}};
         end else if (insn_sh) begin
           if (full_addr_to_dmem[1]) begin
             store_we_to_dmem = 4'b1100;
           end else begin
             store_we_to_dmem = 4'b0011;
           end
-          store_data_to_dmem = {2{memory_state.rs2_data[15:0]}};
+          store_data_to_dmem = {2{m_rs2_data[15:0]}};
         end else if (insn_sw) begin
           store_we_to_dmem = 4'b1111;
-          store_data_to_dmem = memory_state.rs2_data;
+          store_data_to_dmem = m_rs2_data;
         end
       end
       default: begin
