@@ -859,6 +859,7 @@ module DatapathPipelined (
         halt: 0,
         cycle_status: CYCLE_NO_STALL,
         rd: 5'b0,
+        rs2: 5'b0,
         output_data: 32'b0,
         rs2_data: 32'b0
       };
