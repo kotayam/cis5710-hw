@@ -652,9 +652,9 @@ module DatapathPipelined (
 
   // Multiplication
   logic [63:0] mul_res_signed, mul_res_unsigned, mul_res_su;
-  assign mul_res_signed   = $signed(rs1_data) * $signed(rs2_data);
-  assign mul_res_unsigned = rs1_data * rs2_data;
-  assign mul_res_su       = $signed(rs1_data) * $signed({1'b0, rs2_data});
+  assign mul_res_signed   = $signed(alu_a) * $signed(alu_b);
+  assign mul_res_unsigned = alu_a * alu_b;
+  assign mul_res_su       = $signed(alu_a) * $signed({1'b0, alu_b});
 
   logic illegal_insn;
 
