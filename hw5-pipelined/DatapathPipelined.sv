@@ -686,8 +686,7 @@ module DatapathPipelined (
         x_output_data = imm_u << 12;
       end
       OpAuipc: begin
-        x_branch_taken = 1'b1;
-        f_pc_next = execute_state.pc + (imm_u << 12);
+        x_output_data = execute_state.pc + (imm_u << 12);
       end
       OpRegImm: begin
         if (insn_addi) begin
@@ -1011,9 +1010,9 @@ module DatapathPipelined (
   wire [255:0] w_disasm;
   Disasm #(
       .PREFIX("W")
-  ) disasm_4execute (
-      .insn  (execute_state.insn),
-      .disasm(x_disasm)
+  ) disasm_4writeback (
+      .insn  (writeback_state.insn),
+      .disasm(w_disasm)
   );
 
   logic [`REG_SIZE] w_rd_data;
