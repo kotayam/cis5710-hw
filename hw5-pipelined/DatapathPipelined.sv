@@ -487,8 +487,12 @@ module DatapathPipelined (
   wire insn_divu   = insn_opcode == OpRegReg && execute_state.insn[31:25] == 7'd1 && execute_state.insn[14:12] == 3'b101;
   wire insn_rem    = insn_opcode == OpRegReg && execute_state.insn[31:25] == 7'd1 && execute_state.insn[14:12] == 3'b110;
   wire insn_remu   = insn_opcode == OpRegReg && execute_state.insn[31:25] == 7'd1 && execute_state.insn[14:12] == 3'b111;
+  wire insn_ecall = insn_opcode == OpEnviron && execute_state.insn[31:7] == 25'd0;
+  wire insn_fence = insn_opcode == OpMiscMem;nsn_div || insn_divu || insn_rem || insn_remu;
+
   // true if insn uses divider
   wire insn_uses_divider = insn_div || insn_divu || insn_rem || insn_remu;
+
 
   // edge Case & sign logic
   wire div_by_zero = (alu_b == 32'd0);
@@ -591,8 +595,6 @@ module DatapathPipelined (
       end
   end
 
-  wire insn_ecall = insn_opcode == OpEnviron && execute_state.insn[31:7] == 25'd0;
-  wire insn_fence = insn_opcode == OpMiscMem;
 
   // CLA for ALU operations.
   logic [`REG_SIZE] alu_a, alu_b, alu_sum;
@@ -1052,7 +1054,7 @@ module DatapathPipelined (
     if (can_mx_bypass && memory_state.rd == execute_state.rs1) begin
       // mx bypass for rs1
       bypassed_rs1_data = memory_state.output_data;
-    end else if (writeback_state.rd != 0 && writeback_state.rd == execute_state.rs1) begin
+    end else if (we && writeback_state.rd != 0 && writeback_state.rd == execute_state.rs1) begin
       // wx bypass for rs1
       bypassed_rs1_data = w_rd_data;
     end else begin
@@ -1063,7 +1065,7 @@ module DatapathPipelined (
     if (can_mx_bypass && memory_state.rd == execute_state.rs2) begin
       // mx bypass for rs2
       bypassed_rs2_data = memory_state.output_data;
-    end else if (writeback_state.rd != 0 && writeback_state.rd == execute_state.rs2) begin
+    end else if (we && writeback_state.rd != 0 && writeback_state.rd == execute_state.rs2) begin
       // wx bypass for rs2
       bypassed_rs2_data = w_rd_data;
     end else begin
