@@ -488,11 +488,10 @@ module DatapathPipelined (
   wire insn_rem    = insn_opcode == OpRegReg && execute_state.insn[31:25] == 7'd1 && execute_state.insn[14:12] == 3'b110;
   wire insn_remu   = insn_opcode == OpRegReg && execute_state.insn[31:25] == 7'd1 && execute_state.insn[14:12] == 3'b111;
   wire insn_ecall = insn_opcode == OpEnviron && execute_state.insn[31:7] == 25'd0;
-  wire insn_fence = insn_opcode == OpMiscMem;nsn_div || insn_divu || insn_rem || insn_remu;
+  wire insn_fence = insn_opcode == OpMiscMem;
 
   // true if insn uses divider
   wire insn_uses_divider = insn_div || insn_divu || insn_rem || insn_remu;
-
 
   // edge Case & sign logic
   wire div_by_zero = (alu_b == 32'd0);
