@@ -570,7 +570,7 @@ module DatapathPipelined (
     end
   end
 
-  // divider tracking shift register (X1 through X7)
+  // divider tracking shift register 
   typedef struct packed {
     logic valid;
     logic [4:0] rd;
@@ -585,7 +585,7 @@ module DatapathPipelined (
     logic [`REG_SIZE] orig_alu_a;
   } div_track_t;
 
-  div_track_t div_sr[7];
+  div_track_t [6:0] div_sr;
   
   wire div_in_flight = div_sr[0].valid || div_sr[1].valid || div_sr[2].valid || div_sr[3].valid || div_sr[4].valid || div_sr[5].valid || div_sr[6].valid;
 
@@ -708,30 +708,6 @@ module DatapathPipelined (
           x_output_data = alu_a | alu_b;
         end else if (insn_and) begin
           x_output_data = alu_a & alu_b;
-        end else if (insn_div) begin
-          if (div_by_zero) 
-            x_output_data = 32'hFFFFFFFF;
-          else if (div_overflow) 
-            x_output_data = 32'h80000000;
-          else 
-            x_output_data = want_neg_quotient ? (~div_quotient_raw + 32'd1) : div_quotient_raw; 
-        end else if (insn_divu) begin
-          if (div_by_zero) 
-            x_output_data = 32'hFFFFFFFF;
-          else 
-            x_output_data = div_quotient_raw;
-        end else if (insn_rem) begin
-          if (div_by_zero) 
-            x_output_data = alu_a; 
-          else if (div_overflow) 
-            x_output_data = 32'h0;
-          else 
-            x_output_data = want_neg_remainder ? (~div_remainder_raw + 32'd1) : div_remainder_raw;
-        end else if (insn_remu) begin
-          if (div_by_zero) 
-            x_output_data = alu_a;
-          else 
-            x_output_data = div_remainder_raw;
         end else begin
           illegal_insn = 1'b1;
         end
@@ -838,50 +814,9 @@ module DatapathPipelined (
   /* MEMORY STAGE */
   /****************/
 
-  // handle divider output
-  wire [6:0] div_out_funct7 = div_sr[6].insn[31:25];
-  wire [2:0] div_out_funct3 = div_sr[6].insn[14:12];
-
-  wire div_out_insn_div  = (div_out_funct7 == 7'd1) && (div_out_funct3 == 3'b100);
-  wire div_out_insn_divu = (div_out_funct7 == 7'd1) && (div_out_funct3 == 3'b101);
-  wire div_out_insn_rem  = (div_out_funct7 == 7'd1) && (div_out_funct3 == 3'b110);
-  wire div_out_insn_remu = (div_out_funct7 == 7'd1) && (div_out_funct3 == 3'b111);
-
-  logic [31:0] div_final_result;
-  always_comb begin
-      div_final_result = 32'b0;
-      if (div_out_insn_div) begin
-          if (div_sr[6].div_by_zero) div_final_result = 32'hFFFFFFFF;
-          else if (div_sr[6].div_overflow) div_final_result = 32'h80000000;
-          else div_final_result = div_sr[6].want_neg_quotient ? (~div_quotient_raw + 32'd1) : div_quotient_raw;
-      end else if (div_out_insn_divu) begin
-          if (div_sr[6].div_by_zero) div_final_result = 32'hFFFFFFFF;
-          else div_final_result = div_quotient_raw;
-      end else if (div_out_insn_rem) begin
-          if (div_sr[6].div_by_zero) div_final_result = div_sr[6].orig_alu_a;
-          else if (div_sr[6].div_overflow) div_final_result = 32'h0;
-          else div_final_result = div_sr[6].want_neg_remainder ? (~div_remainder_raw + 32'd1) : div_remainder_raw;
-      end else if (div_out_insn_remu) begin
-          if (div_sr[6].div_by_zero) div_final_result = div_sr[6].orig_alu_a;
-          else div_final_result = div_remainder_raw;
-      end
-  end
-
   stage_memory_t m_next;
   always_comb begin
-    if (div_sr[6].valid) begin
-      // division completed so pass to memory stage
-      m_next = '{
-        pc: div_sr[6].pc,
-        insn: div_sr[6].insn,
-        halt: div_sr[6].halt,
-        cycle_status: div_sr[6].cycle_status,
-        rd: div_sr[6].rd,
-        rs2: 5'b0, // doesn't matter
-        output_data: div_final_result, 
-        rs2_data: 32'b0
-      };
-    end else if (div_in_flight || (execute_state.cycle_status == CYCLE_NO_STALL && insn_uses_divider)) begin
+    if (div_in_flight || (execute_state.cycle_status == CYCLE_NO_STALL && insn_uses_divider)) begin
       // memroy stage is empty while division runs
       m_next = '{
         pc: 32'b0,
@@ -1028,9 +963,66 @@ module DatapathPipelined (
     endcase
   end
 
+  // get the output data from divicer if ready
+  wire [6:0] div_out_funct7 = div_sr[6].insn[31:25];
+  wire [2:0] div_out_funct3 = div_sr[6].insn[14:12];
+
+  wire div_out_insn_div  = (div_out_funct7 == 7'd1) && (div_out_funct3 == 3'b100);
+  wire div_out_insn_divu = (div_out_funct7 == 7'd1) && (div_out_funct3 == 3'b101);
+  wire div_out_insn_rem  = (div_out_funct7 == 7'd1) && (div_out_funct3 == 3'b110);
+  wire div_out_insn_remu = (div_out_funct7 == 7'd1) && (div_out_funct3 == 3'b111);
+
+  logic [`REG_SIZE] div_out;
+  always_comb begin
+    div_out = 32'd0;
+    if (div_sr[6].valid) begin
+      if (div_out_insn_div) begin
+          if (div_sr[6].div_by_zero) div_out = 32'hFFFFFFFF;
+          else if (div_sr[6].div_overflow) div_out = 32'h80000000;
+          else div_out = div_sr[6].want_neg_quotient ? (~div_quotient_raw + 32'd1) : div_quotient_raw;
+      end else if (div_out_insn_divu) begin
+          if (div_sr[6].div_by_zero) div_out = 32'hFFFFFFFF;
+          else div_out = div_quotient_raw;
+      end else if (div_out_insn_rem) begin
+          if (div_sr[6].div_by_zero) div_out = div_sr[6].orig_alu_a;
+          else if (div_sr[6].div_overflow) div_out = 32'h0;
+          else div_out = div_sr[6].want_neg_remainder ? (~div_remainder_raw + 32'd1) : div_remainder_raw;
+      end else if (div_out_insn_remu) begin
+          if (div_sr[6].div_by_zero) div_out = div_sr[6].orig_alu_a;
+          else div_out = div_remainder_raw;
+      end
+    end
+  end
+
   /*******************/
   /* WRITEBACK STAGE */
   /*******************/
+
+  stage_writeback_t w_next;
+  always_comb begin
+    if (div_sr[6].valid) begin
+      // pass div insn
+      w_next = '{
+        pc: div_sr[6].pc,
+        insn: div_sr[6].insn,
+        halt: div_sr[6].halt,
+        cycle_status: div_sr[6].cycle_status,
+        rd: div_sr[6].rd, 
+        output_data: div_out,
+        load_data: 32'b0 // not used
+      };
+    end else begin
+      w_next = '{
+        pc: memory_state.pc,
+        insn: memory_state.insn,
+        halt: memory_state.halt,
+        cycle_status: memory_state.cycle_status,
+        rd: memory_state.rd,
+        output_data: memory_state.output_data, 
+        load_data: m_load_data
+      };
+    end
+  end
 
   stage_writeback_t writeback_state;
   always_ff @(posedge clk) begin
@@ -1045,15 +1037,7 @@ module DatapathPipelined (
         load_data: 32'b0
       };
     end else begin
-      writeback_state <= '{
-        pc: memory_state.pc,
-        insn: memory_state.insn,
-        halt: memory_state.halt,
-        cycle_status: memory_state.cycle_status,
-        rd: memory_state.rd,
-        output_data: memory_state.output_data, 
-        load_data: m_load_data
-      };
+      writeback_state <= w_next;
     end
   end
 
