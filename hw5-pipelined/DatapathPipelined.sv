@@ -186,9 +186,6 @@ module DatapathPipelined (
       f_pc_current <= 32'd0;
       // NB: use CYCLE_NO_STALL since this is the value that will persist after the last reset cycle
       f_cycle_status <= CYCLE_NO_STALL;
-    end else if (stall_div) begin          
-      f_pc_current <= f_pc_current;        
-      f_cycle_status <= f_cycle_status;    
     end else begin
       f_cycle_status <= CYCLE_NO_STALL;
       f_pc_current <= f_pc_next;
@@ -214,8 +211,12 @@ module DatapathPipelined (
 
   // keep track of branch taken
   wire branch_taken;
-  // keep track of load-to-use
+  // keep track of stalls
   logic load_use_stall;
+  logic div_stall;
+  logic x_stall;
+  // compound stall indicator for decode
+  logic d_stall;
 
   // this shows how to package up state in a `struct packed`, and how to pass it between stages
   stage_decode_t decode_state;
@@ -232,14 +233,12 @@ module DatapathPipelined (
         insn: `NOP_INSN,
         cycle_status: CYCLE_TAKEN_BRANCH
       };
-    end else if (load_use_stall) begin
+    end else if (d_stall) begin
       decode_state <= '{
         pc: decode_state.pc,
         insn: decode_state.insn,
         cycle_status: decode_state.cycle_status
       };
-    end else if (stall_div) begin
-      decode_state <= decode_state;
     end else begin
       decode_state <= '{
         pc: f_pc_current,
@@ -268,9 +267,9 @@ module DatapathPipelined (
   RegFile rf (
     .clk(clk),
     .rst(rst),
-    .we(final_we),
-    .rd(final_rd),
-    .rd_data(final_rd_data),
+    .we(we),
+    .rd(rd),
+    .rd_data(rd_data),
     .rs1(rs1),
     .rs2(rs2),
     .rs1_data(rs1_data),
@@ -330,7 +329,7 @@ module DatapathPipelined (
     end
   end
 
-  // clear states on branch taken or load-use stall
+  // clear states on branch taken, load-use stall, or div stall
   logic [`REG_SIZE] d_pc;
   logic [`INSN_SIZE] d_insn;
   cycle_status_e d_cycle_status;
@@ -342,10 +341,10 @@ module DatapathPipelined (
     d_rd = insn_rd;
     d_rs1 = insn_rs1;
     d_rs2 = insn_rs2;
-    if (branch_taken || load_use_stall) begin
+    if (branch_taken || load_use_stall || div_stall) begin
       d_pc = 32'b0;
       d_insn = `NOP_INSN;
-      d_cycle_status = branch_taken? CYCLE_TAKEN_BRANCH : CYCLE_LOAD2USE;
+      d_cycle_status = branch_taken? CYCLE_TAKEN_BRANCH : load_use_stall? CYCLE_LOAD2USE : CYCLE_DIV;
       d_rd = 5'b0;
       d_rs1 = 5'b0;
       d_rs2 = 5'b0;
@@ -369,12 +368,8 @@ module DatapathPipelined (
         rs1_data: 32'b0,
         rs2_data: 32'b0
       };
-    end else if (stall_div) begin
+    end else if (x_stall) begin
       execute_state <= execute_state;
-      if (div_out.valid && div_out.rd != 5'd0) begin
-          if (execute_state.rs1 == div_out.rd) execute_state.rs1_data <= div_final_result;
-          if (execute_state.rs2 == div_out.rd) execute_state.rs2_data <= div_final_result;
-      end
     end else begin
       execute_state <= '{
         pc: d_pc,
@@ -406,17 +401,6 @@ module DatapathPipelined (
   assign insn_opcode = execute_state.insn[6:0];
   assign insn_funct3 = execute_state.insn[14:12];
   assign insn_funct7 = execute_state.insn[31:25];
-
-  // check for load-to-use hazard
-  wire is_load_insn = insn_opcode == OpLoad;
-  wire dependent_d_rs1 = use_rs1 && execute_state.rd == insn_rs1; 
-  wire dependent_d_rs2 = use_rs2 && execute_state.rd == insn_rs2 && d_opcode != OpStore;
-  always_comb begin
-    load_use_stall = 1'b0;
-    if (execute_state.rd != 0 && is_load_insn) begin
-      load_use_stall = dependent_d_rs1 || dependent_d_rs2;
-    end
-  end
 
   // setup for I, S, B & J type instructions
   // I - short immediates and loads
@@ -490,109 +474,8 @@ module DatapathPipelined (
   wire insn_ecall = insn_opcode == OpEnviron && execute_state.insn[31:7] == 25'd0;
   wire insn_fence = insn_opcode == OpMiscMem;
 
-  // true if insn uses divider
-  wire insn_uses_divider = insn_div || insn_divu || insn_rem || insn_remu;
 
-  // edge Case & sign logic
-  wire div_by_zero = (alu_b == 32'd0);
-  wire div_overflow = (alu_a == 32'h80000000) && (alu_b == 32'hFFFFFFFF);
-  wire want_neg_quotient = (alu_a[31] != alu_b[31]) && (alu_b != 32'd0) && (alu_a != 32'h80000000 || alu_b != 32'hFFFFFFFF);
-  wire want_neg_remainder = alu_a[31];
 
-  // signed inputs to unsigned
-  wire [31:0] dividend_unsigned = (insn_div || insn_rem) && alu_a[31] ? -alu_a : alu_a;
-  wire [31:0] divisor_unsigned = (insn_div || insn_rem) && alu_b[31] ? -alu_b : alu_b;
-
-  // Raw outputs from the divider
-  wire [31:0] div_remainder_raw;
-  wire [31:0] div_quotient_raw;
-
-  DividerUnsignedPipelined divider (
-      .clk(clk),
-      .rst(rst),
-      .stall(1'b0), // Keep divider freely running; pipeline stall handles sync
-      .i_dividend(dividend_unsigned),
-      .i_divisor(divisor_unsigned),
-      .o_remainder(div_remainder_raw),
-      .o_quotient(div_quotient_raw)
-  );
-
-  // register run parallel to divider 
-  typedef struct packed {
-      logic valid;
-      logic [4:0] rd;
-      logic insn_div;
-      logic insn_divu;
-      logic insn_rem;
-      logic insn_remu;
-      logic div_by_zero;
-      logic div_overflow;
-      logic want_neg_quotient;
-      logic want_neg_remainder;
-      logic [31:0] alu_a;
-  } div_meta_t;
-
-  div_meta_t div_sr [6:0];
-
-  always_ff @(posedge clk) begin
-      if (rst) begin
-          for (int i = 0; i < 7; i++) div_sr[i] <= '{valid: 0, default: 0};
-      end else begin
-          for (int i = 1; i < 7; i++) div_sr[i] <= div_sr[i-1];
-          
-          if (insn_uses_divider && !stall_div && d_cycle_status == CYCLE_NO_STALL) begin
-              div_sr[0] <= '{
-                  valid: 1'b1, rd: execute_state.rd, insn_div: insn_div, insn_divu: insn_divu,
-                  insn_rem: insn_rem, insn_remu: insn_remu, div_by_zero: div_by_zero,
-                  div_overflow: div_overflow, want_neg_quotient: want_neg_quotient,
-                  want_neg_remainder: want_neg_remainder, alu_a: alu_a
-              };
-          end else begin
-              div_sr[0] <= '{valid: 0, default: 0};
-          end
-      end
-  end
-
-  // check for active div and hazards in execute stage to stall
-  logic active_div, div_hazard;
-  always_comb begin
-      active_div = 1'b0;
-      div_hazard = 1'b0;
-      for (int i = 0; i < 7; i++) begin
-          if (div_sr[i].valid) begin
-              active_div = 1'b1; 
-              if (div_sr[i].rd != 5'd0 && (execute_state.rs1 == div_sr[i].rd || execute_state.rs2 == div_sr[i].rd)) begin
-                  div_hazard = 1'b1;
-              end
-          end
-      end
-  end
-  
-  wire stall_div = div_hazard || (active_div && !insn_uses_divider);
-
-  // format the output from the shift register 7 cycles later
-  div_meta_t div_out;
-  assign div_out = div_sr[6]; 
-
-  logic [31:0] div_final_result;
-  always_comb begin
-      div_final_result = 32'b0;
-      if (div_out.insn_div) begin
-          if (div_out.div_by_zero) div_final_result = 32'hFFFFFFFF;
-          else if (div_out.div_overflow) div_final_result = 32'h80000000;
-          else div_final_result = div_out.want_neg_quotient ? (~div_quotient_raw + 32'd1) : div_quotient_raw;
-      end else if (div_out.insn_divu) begin
-          if (div_out.div_by_zero) div_final_result = 32'hFFFFFFFF;
-          else div_final_result = div_quotient_raw;
-      end else if (div_out.insn_rem) begin
-          if (div_out.div_by_zero) div_final_result = div_out.alu_a;
-          else if (div_out.div_overflow) div_final_result = 32'h0;
-          else div_final_result = div_out.want_neg_remainder ? (~div_remainder_raw + 32'd1) : div_remainder_raw;
-      end else if (div_out.insn_remu) begin
-          if (div_out.div_by_zero) div_final_result = div_out.alu_a;
-          else div_final_result = div_remainder_raw;
-      end
-  end
 
 
   // CLA for ALU operations.
@@ -647,9 +530,92 @@ module DatapathPipelined (
     endcase
   end
 
-  // M-Extension Logic
-  logic is_m_extension;
-  assign is_m_extension = (insn_opcode == 7'b0110011) && (insn_funct7 == 7'b0000001);
+  // divider logic
+  logic [`REG_SIZE] div_dividend, div_divisor;
+  wire [`REG_SIZE] div_quotient_raw, div_remainder_raw;
+  DividerUnsignedPipelined divider (
+      .clk(clk),
+      .rst(rst),
+      .stall(1'b0), 
+      .i_dividend(alu_a),
+      .i_divisor(alu_b),
+      .o_remainder(div_remainder_raw),
+      .o_quotient(div_quotient_raw)
+  );
+
+  // true if insn uses divider
+  wire insn_uses_divider = insn_div || insn_divu || insn_rem || insn_remu;
+
+  logic is_signed_div;
+  assign is_signed_div = insn_div || insn_rem;
+
+  logic div_by_zero, div_overflow, want_neg_quotient, want_neg_remainder;
+
+  always_comb begin
+    div_by_zero = (alu_b == 32'b0);
+    div_overflow = is_signed_div && (alu_a == 32'h80000000) && (alu_b == 32'hFFFFFFFF);
+
+    if (is_signed_div) begin
+      // take absolute values for unsigned hardware divider
+      div_dividend = (alu_a[31]) ? (~alu_a + 32'd1) : alu_a;
+      div_divisor  = (alu_b[31]) ? (~alu_b + 32'd1) : alu_b;
+      // determine final signs
+      want_neg_quotient = (alu_a[31] != alu_b[31]) && !div_by_zero && !div_overflow;
+      want_neg_remainder = alu_a[31]; // Remainder sign matches dividend
+    end else begin
+      div_dividend = alu_a;
+      div_divisor  = alu_b;
+      want_neg_quotient = 1'b0;
+      want_neg_remainder = 1'b0;
+    end
+  end
+
+  // divider tracking shift register (X1 through X7)
+  typedef struct packed {
+    logic valid;
+    logic [4:0] rd;
+    logic [`REG_SIZE] pc;
+    logic [`INSN_SIZE] insn;
+    cycle_status_e cycle_status;
+    logic halt;
+    logic div_by_zero;
+    logic div_overflow;
+    logic want_neg_quotient;
+    logic want_neg_remainder;
+    logic [`REG_SIZE] orig_alu_a;
+  } div_track_t;
+
+  div_track_t div_sr[7];
+  
+  wire div_in_flight = div_sr[0].valid || div_sr[1].valid || div_sr[2].valid || div_sr[3].valid || div_sr[4].valid || div_sr[5].valid || div_sr[6].valid;
+
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      for (int i = 0; i < 7; i++) div_sr[i] <= '{valid: 0, cycle_status: CYCLE_RESET, default: 0};
+    end else begin
+      // shift pipeline
+      for (int i = 1; i < 7; i++) div_sr[i] <= div_sr[i-1];
+      
+      // enter from execute stage (X0)
+      if (execute_state.cycle_status == CYCLE_NO_STALL && insn_uses_divider) begin
+        div_sr[0] <= '{
+          valid: 1'b1,
+          rd: execute_state.rd,
+          pc: execute_state.pc,
+          insn: execute_state.insn,
+          cycle_status: execute_state.cycle_status,
+          halt: x_halt,
+          div_by_zero: div_by_zero,
+          div_overflow: div_overflow,
+          want_neg_quotient: want_neg_quotient,
+          want_neg_remainder: want_neg_remainder,
+          orig_alu_a: bypassed_rs1_data
+        };
+      end else begin
+        div_sr[0] <= '{valid: 1'b0, cycle_status: CYCLE_NO_STALL, default: 0};
+      end
+    end
+  end
 
   // Multiplication
   logic [63:0] mul_res_signed, mul_res_unsigned, mul_res_su;
@@ -675,8 +641,8 @@ module DatapathPipelined (
     x_halt = 1'b0;
 
     // increment pc by 4 default
-    // don't update PC if load-use stall
-    f_pc_next = load_use_stall? f_pc_current : f_pc_current + 32'd4;
+    // don't update PC if stall
+    f_pc_next = d_stall? f_pc_current : f_pc_current + 32'd4;
 
     x_output_data = 32'b0;
     x_rs2_data = execute_state.rs2_data;
@@ -835,9 +801,111 @@ module DatapathPipelined (
   // flush decode and execute if branch was taken in execute
   assign branch_taken = x_branch_taken;
 
+  // load-use stall logic
+  wire dependent_d_rs1 = use_rs1 && execute_state.rd == insn_rs1; 
+  wire dependent_d_rs2 = use_rs2 && execute_state.rd == insn_rs2;
+  always_comb begin
+    load_use_stall = 0;
+    if (execute_state.rd != 0 && insn_opcode == OpLoad) begin
+      if (dependent_d_rs1 || dependent_d_rs2 && d_opcode != OpStore) load_use_stall = 1'b1;
+    end
+  end
+
+  // div stall logic
+  always_comb begin
+    div_stall = 0;
+    // divider data hazard (div used in execute)
+    if (execute_state.rd != 0 && insn_uses_divider) begin
+      if (dependent_d_rs1 || dependent_d_rs2) div_stall = 1'b1;
+    end
+    
+    // divider data hazard (div in pipeline)
+    for (int i = 0; i < 7; i++) begin
+      if (div_sr[i].valid && div_sr[i].rd != 0) begin
+        if ((use_rs1 && insn_rs1 == div_sr[i].rd) || (use_rs2 && insn_rs2 == div_sr[i].rd)) begin
+          div_stall = 1'b1;
+        end
+      end
+    end
+  end
+  
+  // execute stalls if non-div insn and old div is in progress
+  assign x_stall = execute_state.cycle_status == CYCLE_NO_STALL && !insn_uses_divider && div_in_flight;
+  assign d_stall = load_use_stall || div_stall || x_stall;
+
   /****************/
   /* MEMORY STAGE */
   /****************/
+
+  // handle divider output
+  wire [6:0] div_out_funct7 = div_sr[6].insn[31:25];
+  wire [2:0] div_out_funct3 = div_sr[6].insn[14:12];
+
+  wire div_out_insn_div  = (div_out_funct7 == 7'd1) && (div_out_funct3 == 3'b100);
+  wire div_out_insn_divu = (div_out_funct7 == 7'd1) && (div_out_funct3 == 3'b101);
+  wire div_out_insn_rem  = (div_out_funct7 == 7'd1) && (div_out_funct3 == 3'b110);
+  wire div_out_insn_remu = (div_out_funct7 == 7'd1) && (div_out_funct3 == 3'b111);
+
+  logic [31:0] div_final_result;
+  always_comb begin
+      div_final_result = 32'b0;
+      if (div_out_insn_div) begin
+          if (div_sr[6].div_by_zero) div_final_result = 32'hFFFFFFFF;
+          else if (div_sr[6].div_overflow) div_final_result = 32'h80000000;
+          else div_final_result = div_sr[6].want_neg_quotient ? (~div_quotient_raw + 32'd1) : div_quotient_raw;
+      end else if (div_out_insn_divu) begin
+          if (div_sr[6].div_by_zero) div_final_result = 32'hFFFFFFFF;
+          else div_final_result = div_quotient_raw;
+      end else if (div_out_insn_rem) begin
+          if (div_sr[6].div_by_zero) div_final_result = div_sr[6].orig_alu_a;
+          else if (div_sr[6].div_overflow) div_final_result = 32'h0;
+          else div_final_result = div_sr[6].want_neg_remainder ? (~div_remainder_raw + 32'd1) : div_remainder_raw;
+      end else if (div_out_insn_remu) begin
+          if (div_sr[6].div_by_zero) div_final_result = div_sr[6].orig_alu_a;
+          else div_final_result = div_remainder_raw;
+      end
+  end
+
+  stage_memory_t m_next;
+  always_comb begin
+    if (div_sr[6].valid) begin
+      // division completed so pass to memory stage
+      m_next = '{
+        pc: div_sr[6].pc,
+        insn: div_sr[6].insn,
+        halt: div_sr[6].halt,
+        cycle_status: div_sr[6].cycle_status,
+        rd: div_sr[6].rd,
+        rs2: 5'b0, // doesn't matter
+        output_data: div_final_result, 
+        rs2_data: 32'b0
+      };
+    end else if (div_in_flight || (execute_state.cycle_status == CYCLE_NO_STALL && insn_uses_divider)) begin
+      // memroy stage is empty while division runs
+      m_next = '{
+        pc: 32'b0,
+        insn: `NOP_INSN,
+        halt: 1'b0,
+        cycle_status: CYCLE_DIV, 
+        rd: 5'b0,
+        rs2: 5'b0,
+        output_data: 32'b0,
+        rs2_data: 32'b0
+      };
+    end else begin
+      // normal flow from execute
+      m_next = '{
+        pc: execute_state.pc,
+        insn: execute_state.insn,
+        halt: x_halt,
+        cycle_status: execute_state.cycle_status,
+        rd: execute_state.rd,
+        rs2: execute_state.rs2,
+        output_data: x_output_data, 
+        rs2_data: x_rs2_data
+      };
+    end
+  end
 
   stage_memory_t memory_state;
   always_ff @(posedge clk) begin
@@ -852,28 +920,8 @@ module DatapathPipelined (
         output_data: 32'b0,
         rs2_data: 32'b0
       };
-    end else if (stall_div) begin
-      memory_state <= '{
-        pc: 0,
-        insn: `NOP_INSN,
-        halt: 0,
-        cycle_status: CYCLE_NO_STALL,
-        rd: 5'b0,
-        rs2: 5'b0,
-        output_data: 32'b0,
-        rs2_data: 32'b0
-      };
-    end else begin
-      memory_state <= '{
-        pc: execute_state.pc,
-        insn: execute_state.insn,
-        halt: x_halt,
-        cycle_status: execute_state.cycle_status,
-        rd: execute_state.rd,
-        rs2: execute_state.rs2,
-        output_data: x_output_data, 
-        rs2_data: x_rs2_data
-      };
+    end else begin 
+      memory_state <= m_next;
     end
   end
 
@@ -1018,7 +1066,7 @@ module DatapathPipelined (
 
   logic [`REG_SIZE] w_rd_data;
   wire [`OPCODE_SIZE] w_insn_opcode = writeback_state.insn[6:0];
-
+  assign rd = writeback_state.rd;
   assign halt = writeback_state.halt;
 
   // choose appropriate data to write back
@@ -1034,12 +1082,6 @@ module DatapathPipelined (
         end
         OpStore, OpBranch, OpEnviron: begin
           we = 1'b0;
-        end
-        OpRegReg: begin
-            // no write back if division/rem, hijack the writeback for div output
-            if (writeback_state.insn[31:25] == 7'd1 && writeback_state.insn[14:12] >= 3'b100) begin
-                we = 1'b0; 
-            end
         end
         default : begin
         end
@@ -1105,15 +1147,7 @@ module DatapathPipelined (
     end
   end
 
-  // check for division instruction
-  wire wb_is_div = (writeback_state.insn[6:0] == 7'b0110011) && 
-                   (writeback_state.insn[31:25] == 7'd1) && 
-                   (writeback_state.insn[14:12] >= 3'b100);
-
-  // if divider just finished force write enable on
-  wire final_we = div_out.valid ? 1'b1 : (we && !wb_is_div);
-  wire [4:0] final_rd = div_out.valid ? div_out.rd : writeback_state.rd;
-  wire [31:0] final_rd_data = div_out.valid ? div_final_result : w_rd_data;
+  assign rd_data = w_rd_data;
 
   // assign outputs
   assign trace_completed_pc = writeback_state.pc;
