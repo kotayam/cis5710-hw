@@ -816,7 +816,18 @@ module DatapathPipelined (
 
   stage_memory_t m_next;
   always_comb begin
-    if (div_in_flight || (execute_state.cycle_status == CYCLE_NO_STALL && insn_uses_divider)) begin
+    if (div_sr[6].valid) begin
+      m_next = '{
+        pc: div_sr[6].pc,
+        insn: div_sr[6].insn,
+        halt: div_sr[6].halt,
+        cycle_status: div_sr[6].cycle_status,
+        rd: div_sr[6].rd, 
+        rs2: 5'b0,
+        output_data: div_out,
+        rs2_data: 32'b0
+      };
+    end else if (div_in_flight || (execute_state.cycle_status == CYCLE_NO_STALL && insn_uses_divider)) begin
       // memroy stage is empty while division runs
       m_next = '{
         pc: 32'b0,
@@ -998,32 +1009,6 @@ module DatapathPipelined (
   /* WRITEBACK STAGE */
   /*******************/
 
-  stage_writeback_t w_next;
-  always_comb begin
-    if (div_sr[6].valid) begin
-      // pass div insn
-      w_next = '{
-        pc: div_sr[6].pc,
-        insn: div_sr[6].insn,
-        halt: div_sr[6].halt,
-        cycle_status: div_sr[6].cycle_status,
-        rd: div_sr[6].rd, 
-        output_data: div_out,
-        load_data: 32'b0 // not used
-      };
-    end else begin
-      w_next = '{
-        pc: memory_state.pc,
-        insn: memory_state.insn,
-        halt: memory_state.halt,
-        cycle_status: memory_state.cycle_status,
-        rd: memory_state.rd,
-        output_data: memory_state.output_data, 
-        load_data: m_load_data
-      };
-    end
-  end
-
   stage_writeback_t writeback_state;
   always_ff @(posedge clk) begin
     if (rst) begin
@@ -1037,7 +1022,15 @@ module DatapathPipelined (
         load_data: 32'b0
       };
     end else begin
-      writeback_state <= w_next;
+      writeback_state <= '{
+        pc: memory_state.pc,
+        insn: memory_state.insn,
+        halt: memory_state.halt,
+        cycle_status: memory_state.cycle_status,
+        rd: memory_state.rd,
+        output_data: memory_state.output_data, 
+        load_data: m_load_data
+      };
     end
   end
 
