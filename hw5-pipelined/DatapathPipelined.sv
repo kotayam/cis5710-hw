@@ -820,7 +820,8 @@ module DatapathPipelined (
     end
     
     // divider data hazard (div in pipeline)
-    for (int i = 0; i < 7; i++) begin
+    // we dont check the last one to prevent cycle delay
+    for (int i = 0; i < 6; i++) begin
       if (div_sr[i].valid && div_sr[i].rd != 0) begin
         if ((use_rs1 && insn_rs1 == div_sr[i].rd) || (use_rs2 && insn_rs2 == div_sr[i].rd)) begin
           div_stall = 1'b1;
