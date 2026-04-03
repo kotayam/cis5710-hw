@@ -537,8 +537,8 @@ module DatapathPipelined (
       .clk(clk),
       .rst(rst),
       .stall(1'b0), 
-      .i_dividend(alu_a),
-      .i_divisor(alu_b),
+      .i_dividend(div_dividend),
+      .i_divisor(div_divisor),
       .o_remainder(div_remainder_raw),
       .o_quotient(div_quotient_raw)
   );
