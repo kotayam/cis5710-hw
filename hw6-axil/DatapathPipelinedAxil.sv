@@ -53,8 +53,6 @@ module Disasm #(
 `endif
 endmodule
 
-// TODO: copy over your RegFile and pipeline structs from HW5
-
 module RegFile (
     input logic [4:0] rd,
     input logic [`REG_SIZE] rd_data,
@@ -158,7 +156,7 @@ module DatapathPipelinedAxil (
 );
 
   localparam bit True = 1'b1;
-  // localparam bit False = 1'b0;
+  localparam bit False = 1'b0;
   
   // opcodes - see section 19 of RiscV spec
   localparam bit [`OPCODE_SIZE] OpLoad = 7'b00_000_11;
@@ -186,16 +184,21 @@ module DatapathPipelinedAxil (
     end
   end
 
-  // TODO: copy in your HW5B datapath as a starting point
-
   /***************/
   /* FETCH STAGE */
   /***************/
+  // keep track of branch taken
+  wire branch_taken;
 
   logic [`REG_SIZE] f_pc_current;
   logic [`REG_SIZE] f_pc_next;
-  // logic [`REG_SIZE] f_insn;
-  assign imem.ARVALID = True; // always ready to fetch an insn
+
+  always_comb begin
+    imem.ARVALID = True;
+    if (branch_taken) begin
+      imem.ARVALID = False;
+    end
+  end
   assign imem.ARADDR = f_pc_current;
 
 
@@ -233,6 +236,11 @@ module DatapathPipelinedAxil (
         pc: 0,
         cycle_status: CYCLE_RESET
       };
+    end else if (branch_taken) begin
+      get_state <= '{
+        pc: 0,
+        cycle_status: CYCLE_TAKEN_BRANCH
+      };
     end else begin
       get_state <= '{
         pc: f_pc_current,
@@ -258,8 +266,6 @@ module DatapathPipelinedAxil (
   /* DECODE STAGE */
   /****************/
 
-  // keep track of branch taken
-  wire branch_taken;
   // keep track of stalls
   logic load_use_stall;
   logic div_stall;
