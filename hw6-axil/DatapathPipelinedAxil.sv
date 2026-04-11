@@ -243,6 +243,7 @@ module DatapathPipelinedAxil (
 
   wire [`INSN_SIZE] g_insn = imem.RDATA;
   wire g_valid = imem.RVALID;
+  wire g_stall = !g_valid;
   assign imem.RREADY = True; 
 
   wire [255:0] g_disasm;
@@ -281,7 +282,7 @@ module DatapathPipelinedAxil (
         insn: `NOP_INSN,
         cycle_status: CYCLE_TAKEN_BRANCH
       };
-    end else if (d_stall) begin
+    end else if (d_stall || g_stall) begin
       decode_state <= '{
         pc: decode_state.pc,
         insn: decode_state.insn,
