@@ -536,9 +536,9 @@ module DatapathPipelinedAxil (
   wire insn_ecall = insn_opcode == OpEnviron && execute_state.insn[31:7] == 25'd0;
   wire insn_fence = insn_opcode == OpMiscMem;
 
-
-
-
+  wire insn_sb = insn_opcode == OpStore && execute_state.insn[14:12] == 3'b000;
+  wire insn_sh = insn_opcode == OpStore && execute_state.insn[14:12] == 3'b001;
+  wire insn_sw = insn_opcode == OpStore && execute_state.insn[14:12] == 3'b010;
 
   // CLA for ALU operations.
   logic [`REG_SIZE] alu_a, alu_b, alu_sum;
@@ -717,6 +717,9 @@ module DatapathPipelinedAxil (
     dmem.AWVALID = 0;
     dmem.ARADDR = 32'b0;
     dmem.ARVALID = 0;
+    dmem.WSTRB = 4'b0;
+    dmem.WDATA = 32'b0;
+    dmem.WVALID = 1'b0;
     
     case (insn_opcode)
       OpLui: begin
@@ -790,7 +793,26 @@ module DatapathPipelinedAxil (
         if (insn_opcode == OpStore) begin
           dmem.AWADDR = x_output_data;
           dmem.AWVALID = 1;
-
+          dmem.WVALID = 1'b1;
+          if (insn_sb) begin
+            case (x_output_data[1:0])
+              2'b00: dmem.WSTRB = 4'b0001;
+              2'b01: dmem.WSTRB = 4'b0010;
+              2'b10: dmem.WSTRB = 4'b0100;
+              2'b11: dmem.WSTRB = 4'b1000;
+            endcase
+            dmem.WDATA = {4{x_rs2_data[7:0]}};
+          end else if (insn_sh) begin
+            if (x_output_data[1]) begin
+              dmem.WSTRB = 4'b1100;
+            end else begin
+              dmem.WSTRB = 4'b0011;
+            end
+            dmem.WDATA = {2{x_rs2_data[15:0]}};
+          end else if (insn_sw) begin
+            dmem.WSTRB = 4'b1111;
+            dmem.WDATA = x_rs2_data;
+          end
         end
         else begin
           dmem.ARADDR = x_output_data;
@@ -969,10 +991,6 @@ module DatapathPipelinedAxil (
   wire insn_lbu = m_insn_opcode == OpLoad && memory_state.insn[14:12] == 3'b100;
   wire insn_lhu = m_insn_opcode == OpLoad && memory_state.insn[14:12] == 3'b101;
 
-  wire insn_sb = m_insn_opcode == OpStore && memory_state.insn[14:12] == 3'b000;
-  wire insn_sh = m_insn_opcode == OpStore && memory_state.insn[14:12] == 3'b001;
-  wire insn_sw = m_insn_opcode == OpStore && memory_state.insn[14:12] == 3'b010;
-
   logic [`REG_SIZE] full_addr_to_dmem;
   logic [7:0] byte_val_dmem;
   logic [15:0] half_val_dmem;
@@ -983,13 +1001,8 @@ module DatapathPipelinedAxil (
 
   always_comb begin
     m_load_data = 32'b0;
-    
     m_rs2_data = memory_state.rs2_data;
-
     full_addr_to_dmem = 32'b0;
-    dmem.WSTRB = 4'b0;
-    dmem.WDATA = 32'b0;
-    dmem.WVALID = 1'b0;
 
     case (m_insn_opcode)
       OpLoad: begin
@@ -1018,29 +1031,6 @@ module DatapathPipelinedAxil (
           m_load_data = {24'b0, byte_val_dmem};
         end else if (insn_lhu) begin
           m_load_data = {16'b0, half_val_dmem};
-        end
-      end
-      OpStore: begin
-        full_addr_to_dmem = memory_state.output_data;
-        dmem.WVALID = 1'b1;
-        if (insn_sb) begin
-          case (full_addr_to_dmem[1:0])
-            2'b00: dmem.WSTRB = 4'b0001;
-            2'b01: dmem.WSTRB = 4'b0010;
-            2'b10: dmem.WSTRB = 4'b0100;
-            2'b11: dmem.WSTRB = 4'b1000;
-          endcase
-          dmem.WDATA = {4{m_rs2_data[7:0]}};
-        end else if (insn_sh) begin
-          if (full_addr_to_dmem[1]) begin
-            dmem.WSTRB = 4'b1100;
-          end else begin
-            dmem.WSTRB = 4'b0011;
-          end
-          dmem.WDATA = {2{m_rs2_data[15:0]}};
-        end else if (insn_sw) begin
-          dmem.WSTRB = 4'b1111;
-          dmem.WDATA = m_rs2_data;
         end
       end
       default: begin
