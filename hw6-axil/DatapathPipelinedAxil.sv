@@ -195,7 +195,7 @@ module DatapathPipelinedAxil (
 
   always_comb begin
     imem.ARVALID = True;
-    if (branch_taken) begin
+    if (branch_taken || d_stall) begin
       imem.ARVALID = False;
     end
   end
