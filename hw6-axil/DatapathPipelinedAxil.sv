@@ -252,7 +252,7 @@ module DatapathPipelinedAxil (
   logic [`INSN_SIZE] g_insn;
   wire g_valid = imem.RVALID;
   wire g_stall = !g_valid;
-  assign imem.RREADY = True; 
+  assign imem.RREADY = !d_stall; 
 
   always_comb begin
     g_insn = imem.RDATA;
