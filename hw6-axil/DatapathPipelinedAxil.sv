@@ -692,6 +692,9 @@ module DatapathPipelinedAxil (
   logic x_branch_taken;
   logic x_halt;
 
+  logic [`REG_SIZE] addr_to_dmem;
+  
+
   always_comb begin
     // set defaults
     illegal_insn = 1'b0;
@@ -709,6 +712,11 @@ module DatapathPipelinedAxil (
     x_output_data = 32'b0;
     x_rs2_data = execute_state.rs2_data;
     x_branch_taken = 1'b0;
+    addr_to_dmem = 32'b0;
+    dmem.AWADDR = 32'b0;
+    dmem.AWVALID = 0;
+    dmem.ARADDR = 32'b0;
+    dmem.ARVALID = 0;
     
     case (insn_opcode)
       OpLui: begin
@@ -777,6 +785,17 @@ module DatapathPipelinedAxil (
       OpStore, OpLoad: begin
         x_output_data = alu_a + alu_b;
         x_rs2_data = bypassed_rs2_data;
+        // make sure 4B aligned
+        addr_to_dmem = {x_output_data[31:2], 2'b00};
+        if (insn_opcode == OpStore) begin
+          dmem.AWADDR = x_output_data;
+          dmem.AWVALID = 1;
+
+        end
+        else begin
+          dmem.ARADDR = x_output_data;
+          dmem.ARVALID = 1;
+        end
       end
       OpJal: begin
           x_branch_taken = 1'b1;
@@ -964,49 +983,49 @@ module DatapathPipelinedAxil (
   // WM bypass logic
   logic wm_bypass_taken;
   logic [`REG_SIZE] wm_rs2_data;
+  wire [`REG_SIZE] m_rdata = dmem.RDATA;
 
-  // always_comb begin
-  //   m_load_data = 32'b0;
+  always_comb begin
+    m_load_data = 32'b0;
+    
+    m_rs2_data = memory_state.rs2_data;
+    if (wm_bypass_taken) begin
+      m_rs2_data = wm_rs2_data;
+    end
 
-  //   m_rs2_data = memory_state.rs2_data;
-  //   if (wm_bypass_taken) begin
-  //     m_rs2_data = wm_rs2_data;
-  //   end
+    full_addr_to_dmem = 32'b0;
+    // store_we_to_dmem = 4'b0;
+    // store_data_to_dmem = 32'b0;
 
-  //   addr_to_dmem = 32'b0;
-  //   store_we_to_dmem = 4'b0;
-  //   store_data_to_dmem = 32'b0;
-
-  //   case (m_insn_opcode)
-  //     OpLoad: begin
-  //       full_addr_to_dmem = memory_state.output_data;
-  //       // make sure 4B aligned
-  //       addr_to_dmem = {full_addr_to_dmem[31:2], 2'b00};
-  //       // for lb
-  //       case (full_addr_to_dmem[1:0])
-  //         2'b00: byte_val_dmem = load_data_from_dmem[7:0];
-  //         2'b01: byte_val_dmem = load_data_from_dmem[15:8];
-  //         2'b10: byte_val_dmem = load_data_from_dmem[23:16];
-  //         2'b11: byte_val_dmem = load_data_from_dmem[31:24];
-  //       endcase
-  //       // for lh
-  //       if (full_addr_to_dmem[1]) begin
-  //         half_val_dmem = load_data_from_dmem[31:16];
-  //       end else begin
-  //         half_val_dmem = load_data_from_dmem[15:0];
-  //       end
-  //       if (insn_lb) begin
-  //         m_load_data = {{24{byte_val_dmem[7]}}, byte_val_dmem};
-  //       end else if (insn_lh) begin
-  //         m_load_data = {{16{half_val_dmem[15]}}, half_val_dmem};
-  //       end else if (insn_lw) begin
-  //         m_load_data = load_data_from_dmem;
-  //       end else if (insn_lbu) begin
-  //         m_load_data = {24'b0, byte_val_dmem};
-  //       end else if (insn_lhu) begin
-  //         m_load_data = {16'b0, half_val_dmem};
-  //       end
-  //     end
+    case (m_insn_opcode)
+      OpLoad: begin
+        full_addr_to_dmem = memory_state.output_data;
+        
+        // for lb
+        case (full_addr_to_dmem[1:0])
+          2'b00: byte_val_dmem = m_rdata[7:0];
+          2'b01: byte_val_dmem = m_rdata[15:8];
+          2'b10: byte_val_dmem = m_rdata[23:16];
+          2'b11: byte_val_dmem = m_rdata[31:24];
+        endcase
+        // for lh
+        if (full_addr_to_dmem[1]) begin
+          half_val_dmem = m_rdata[31:16];
+        end else begin
+          half_val_dmem = m_rdata[15:0];
+        end
+        if (insn_lb) begin
+          m_load_data = {{24{byte_val_dmem[7]}}, byte_val_dmem};
+        end else if (insn_lh) begin
+          m_load_data = {{16{half_val_dmem[15]}}, half_val_dmem};
+        end else if (insn_lw) begin
+          m_load_data = m_rdata;
+        end else if (insn_lbu) begin
+          m_load_data = {24'b0, byte_val_dmem};
+        end else if (insn_lhu) begin
+          m_load_data = {16'b0, half_val_dmem};
+        end
+      end
   //     OpStore: begin
   //       full_addr_to_dmem = memory_state.output_data;
   //       // make sure 4B aligned
@@ -1031,10 +1050,10 @@ module DatapathPipelinedAxil (
   //         store_data_to_dmem = m_rs2_data;
   //       end
   //     end
-  //     default: begin
-  //     end
-  //   endcase
-  // end
+      default: begin
+      end
+    endcase
+  end
 
   // get the output data from divicer if ready
   wire [6:0] div_out_funct7 = div_sr[6].insn[31:25];
