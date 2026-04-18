@@ -693,7 +693,8 @@ module DatapathPipelinedAxil (
   logic x_halt;
 
   logic [`REG_SIZE] addr_to_dmem;
-  
+
+  assign dmem.BREADY = True;
 
   always_comb begin
     // set defaults
@@ -714,12 +715,12 @@ module DatapathPipelinedAxil (
     x_branch_taken = 1'b0;
     addr_to_dmem = 32'b0;
     dmem.AWADDR = 32'b0;
-    dmem.AWVALID = 0;
+    dmem.AWVALID = False;
     dmem.ARADDR = 32'b0;
-    dmem.ARVALID = 0;
+    dmem.ARVALID = False;
     dmem.WSTRB = 4'b0;
     dmem.WDATA = 32'b0;
-    dmem.WVALID = 1'b0;
+    dmem.WVALID = False;
     
     case (insn_opcode)
       OpLui: begin
@@ -791,8 +792,8 @@ module DatapathPipelinedAxil (
         // address is 4B aligned internally in memory module
         if (insn_opcode == OpStore) begin
           dmem.AWADDR = x_output_data;
-          dmem.AWVALID = 1;
-          dmem.WVALID = 1'b1;
+          dmem.AWVALID = True;
+          dmem.WVALID = True;
           if (insn_sb) begin
             case (x_output_data[1:0])
               2'b00: dmem.WSTRB = 4'b0001;
@@ -815,7 +816,7 @@ module DatapathPipelinedAxil (
         end
         else begin
           dmem.ARADDR = x_output_data;
-          dmem.ARVALID = 1;
+          dmem.ARVALID = True;
         end
       end
       OpJal: begin
