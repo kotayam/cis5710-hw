@@ -864,7 +864,7 @@ module DatapathPipelinedAxil (
   always_comb begin
     load_use_stall = 0;
     if (execute_state.rd != 0 && insn_opcode == OpLoad) begin
-      if (dependent_d_rs1 || (dependent_d_rs2 && d_opcode != OpStore)) load_use_stall = 1'b1;
+      if (dependent_d_rs1 || dependent_d_rs2) load_use_stall = 1'b1;
     end
   end
 
