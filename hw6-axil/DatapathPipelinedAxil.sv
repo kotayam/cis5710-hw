@@ -430,7 +430,7 @@ module DatapathPipelinedAxil (
         rs1_data: 32'b0,
         rs2_data: 32'b0
       };
-    end else if (x_stall) begin
+    end else if (x_stall || m_stall) begin
       execute_state <= execute_state;
     end else begin
       execute_state <= '{
@@ -911,7 +911,10 @@ module DatapathPipelinedAxil (
   
   // execute stalls if non-div insn and old div is in progress
   assign x_stall = execute_state.cycle_status == CYCLE_NO_STALL && !insn_uses_divider && div_in_flight;
-  assign d_stall = load_use_stall || div_stall || x_stall;
+  // memory stalls while waiting for AXI-Lite dmem read response
+  wire m_stall = (m_insn_opcode == OpLoad) && !dmem.RVALID;
+  assign dmem.RREADY = !m_stall;
+  assign d_stall = load_use_stall || div_stall || x_stall || m_stall;
 
   /****************/
   /* MEMORY STAGE */
@@ -970,6 +973,8 @@ module DatapathPipelinedAxil (
         output_data: 32'b0,
         rs2_data: 32'b0
       };
+    end else if (m_stall) begin
+      memory_state <= memory_state;
     end else begin 
       memory_state <= m_next;
     end
