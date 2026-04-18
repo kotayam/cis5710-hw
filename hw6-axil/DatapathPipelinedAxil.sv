@@ -979,19 +979,12 @@ module DatapathPipelinedAxil (
 
   logic [`REG_SIZE] m_load_data;
   logic [`REG_SIZE] m_rs2_data;
-
-  // WM bypass logic
-  logic wm_bypass_taken;
-  logic [`REG_SIZE] wm_rs2_data;
   wire [`REG_SIZE] m_rdata = dmem.RDATA;
 
   always_comb begin
     m_load_data = 32'b0;
     
     m_rs2_data = memory_state.rs2_data;
-    if (wm_bypass_taken) begin
-      m_rs2_data = wm_rs2_data;
-    end
 
     full_addr_to_dmem = 32'b0;
     dmem.WSTRB = 4'b0;
@@ -1189,19 +1182,6 @@ module DatapathPipelinedAxil (
         // we use bypass
         wd_bypass_taken = 1'b1;
         wd_rs2_data = w_rd_data;
-      end
-    end
-  end
-
-  // WM bypass logic
-  wire wm_dep = w_insn_opcode == OpLoad && m_insn_opcode == OpStore && writeback_state.rd == memory_state.rs2;
-  always_comb begin
-    wm_bypass_taken = 1'b0;
-    wm_rs2_data = memory_state.rs2_data;
-    if (writeback_state.rd != 0 && we) begin
-      if (wm_dep) begin
-        wm_bypass_taken = 1'b1;
-        wm_rs2_data = w_rd_data;
       end
     end
   end
