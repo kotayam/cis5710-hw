@@ -788,8 +788,7 @@ module DatapathPipelinedAxil (
       OpStore, OpLoad: begin
         x_output_data = alu_a + alu_b;
         x_rs2_data = bypassed_rs2_data;
-        // make sure 4B aligned
-        addr_to_dmem = {x_output_data[31:2], 2'b00};
+        // address is 4B aligned internally in memory module
         if (insn_opcode == OpStore) begin
           dmem.AWADDR = x_output_data;
           dmem.AWVALID = 1;
