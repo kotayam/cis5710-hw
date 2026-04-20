@@ -241,6 +241,8 @@ module DatapathPipelinedAxil (
         pc: 0,
         cycle_status: CYCLE_TAKEN_BRANCH
       };
+    end else if (d_stall) begin
+      get_state <= get_state;
     end else begin
       get_state <= '{
         pc: f_pc_current,
@@ -256,7 +258,7 @@ module DatapathPipelinedAxil (
 
   always_comb begin
     g_insn = imem.RDATA;
-    if (g_stall) begin
+    if (g_stall || d_stall) begin
       g_insn = `NOP_INSN;
     end
   end
@@ -295,12 +297,8 @@ module DatapathPipelinedAxil (
         insn: `NOP_INSN,
         cycle_status: CYCLE_TAKEN_BRANCH
       };
-    end else if (d_stall || g_stall) begin
-      decode_state <= '{
-        pc: decode_state.pc,
-        insn: decode_state.insn,
-        cycle_status: decode_state.cycle_status
-      };
+    end else if (d_stall) begin
+      decode_state <= decode_state;
     end else begin
       decode_state <= '{
         pc: get_state.pc,
