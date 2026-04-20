@@ -1176,14 +1176,21 @@ module MemorySingleCycle (
 		end
 	initial _sv2v_0 = 0;
 endmodule
-module SystemResourceCheck (
+module SystemDemo (
 	external_clk_25MHz,
 	btn,
-	led
+	led,
+	gp
 );
 	input wire external_clk_25MHz;
 	input wire [6:0] btn;
 	output wire [7:0] led;
+	output wire [27:0] gp;
+	localparam signed [31:0] MmapGpioStart = 32'hff001000;
+	localparam signed [31:0] LastGpioIndex = 27;
+	localparam signed [31:0] MmapGpioEnd = MmapGpioStart + LastGpioIndex;
+	localparam signed [31:0] MmapLeds = 32'hff002000;
+	localparam signed [31:0] MmapButtons = 32'hff003000;
 	wire clk_proc;
 	wire clk_locked;
 	MyClockGen clock_gen(
@@ -1200,7 +1207,23 @@ module SystemResourceCheck (
 	wire [31:0] trace_writeback_pc;
 	wire [31:0] trace_writeback_insn;
 	wire [31:0] trace_writeback_cycle_status;
-	MemorySingleCycle #(.NUM_WORDS(128)) memory(
+	wire is_gpio_write = (mem_data_we != 0) && ((MmapGpioStart <= mem_data_addr) && (mem_data_addr <= MmapGpioEnd));
+	wire is_led_write = (mem_data_we != 0) && (mem_data_addr == MmapLeds);
+	wire is_button_read = mem_data_addr == MmapButtons;
+	reg [7:0] led_reg;
+	reg [27:0] gpio_reg;
+	always @(posedge clk_proc)
+		if (!clk_locked) begin
+			led_reg <= 0;
+			gpio_reg <= 0;
+		end
+		else if (is_gpio_write)
+			gpio_reg[mem_data_addr - MmapGpioStart] <= mem_data_to_write[0];
+		else if (is_led_write)
+			led_reg <= mem_data_to_write[7:0];
+	assign gp = gpio_reg;
+	assign led = led_reg;
+	MemorySingleCycle #(.NUM_WORDS(1024)) memory(
 		.rst(!clk_locked),
 		.clk(clk_proc),
 		.pc_to_imem(pc_to_imem),
@@ -1208,7 +1231,7 @@ module SystemResourceCheck (
 		.addr_to_dmem(mem_data_addr),
 		.load_data_from_dmem(mem_data_loaded_value),
 		.store_data_to_dmem(mem_data_to_write),
-		.store_we_to_dmem(mem_data_we)
+		.store_we_to_dmem((is_gpio_write ? 4'd0 : mem_data_we))
 	);
 	DatapathPipelined datapath(
 		.clk(clk_proc),
@@ -1219,7 +1242,7 @@ module SystemResourceCheck (
 		.store_data_to_dmem(mem_data_to_write),
 		.store_we_to_dmem(mem_data_we),
 		.load_data_from_dmem(mem_data_loaded_value),
-		.halt(led[0]),
+		.halt(),
 		.trace_completed_pc(trace_writeback_pc),
 		.trace_completed_insn(trace_writeback_insn),
 		.trace_completed_cycle_status(trace_writeback_cycle_status)
